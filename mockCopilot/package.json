@@ -1,0 +1,13 @@
+{
+  "name": "mock-copilot-connect",
+  "version": "1.0.0",
+  "description": "Mock Copilot Connect server — OpenAI-compatible API for local development",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}

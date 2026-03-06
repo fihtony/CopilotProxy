@@ -1,0 +1,27 @@
+{
+  "name": "copilot-proxy",
+  "description": "An OpenAI-compatible API gateway that validates API keys, enforces per-key model binding, and forwards requests to Copilot Connect.",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "Tony Xu <tony@tarch.ca>",
+  "private": true,
+  "workspaces": [
+    "server",
+    "ui"
+  ],
+  "scripts": {
+    "build": "npm run build -w server && npm run build -w ui",
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w ui\"",
+    "dev:server": "npm run dev -w server",
+    "dev:ui": "npm run dev -w ui",
+    "start": "concurrently \"npm run start -w server\" \"npm run preview -w ui\"",
+    "test": "npm run test:api && npm run test:e2e",
+    "test:api": "npm run test -w server",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "concurrently": "^9.1.2",
+    "start-server-and-test": "^2.1.2"
+  }
+}
