@@ -1,13 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { config } from "../config.js";
 import type { ApiKeyRecord, RequestLogRecord, SettingsRecord, TimeWindow } from "../types.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const schemaPath = path.join(__dirname, "..", "..", "src", "db", "schema.sql");
+// Schema path: works from both dist/ and src/ locations
+// Try multiple paths to support both production (dist/) and test (src/) execution
+const schemaPaths = [
+  path.join(process.cwd(), "src/db/schema.sql"), // From server/ cwd
+  path.join(process.cwd(), "server/src/db/schema.sql"), // From root cwd
+];
+const schemaPath = schemaPaths.find((p) => fs.existsSync(p));
+if (!schemaPath) {
+  throw new Error(`schema.sql not found. Tried: ${schemaPaths.join(", ")}`);
+}
 
 fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
 

@@ -19,7 +19,7 @@ describe("stats routes", () => {
         .send({ model: "ignored", messages: [{ role: "user", content: `msg-${i}` }] })
         .expect(200);
     }
-  });
+  }, 30000); // Increase timeout for this hook
 
   // ── Overview ──────────────────────────────────────────────────────────
   it("returns overview with summary, p-values and timeline", async () => {

@@ -7,10 +7,11 @@ An OpenAI-compatible API gateway that validates API keys, enforces per-key model
 - **Per-key model binding** — each API key is locked to a specific model; the `model` field in incoming requests is always ignored
 - **Dashboard** — real-time metrics with 5 cards (total calls, success rate, proxy latency, response time, avg tokens), P90/P95/P99 percentiles, and interactive timecharts
 - **Health indicator** — polls upstream Copilot Connect every 30 seconds
-- **API key management** — create, edit, and soft-delete keys via modal-based UI; search, sort, and filter
-- **Key-level dashboard** — per-key statistics, timeline charts, and recent error logs
+- **API key management** — create, edit, and soft-delete keys via modal-based UI; search, sort, and filter; see `last_used_at` timestamp for each key
+- **Key-level dashboard** — per-key statistics, timeline charts, recent error logs, and **calls breakdown by client IP address and Host header**
 - **Settings** — configure upstream Copilot URL and default model; test connection to discover available models
 - **Soft delete** — deleted keys retain historical data and statistics; proxy rejects them with 401
+- **Request tracking** — each API request logs the client IP address and Host header for analysis and debugging
 
 ## Requirements
 

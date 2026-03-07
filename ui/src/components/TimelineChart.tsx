@@ -9,8 +9,23 @@ interface TimelineChartProps {
   unit?: string;
 }
 
+// Helper function to convert UTC bucket string to local time display
+function formatBucketToLocalTime(bucket: string): string {
+  if (!bucket) return bucket;
+  // Bucket format: "2026-03-07 18:00:00" (24h) or "2026-03-07" (7d/30d/90d)
+  // SQLite strftime uses the timestamp as-is (UTC), so parse as UTC and convert to local
+  const isoString = bucket.includes(":") ? bucket.replace(" ", "T") + "Z" : bucket + "T00:00:00Z";
+  const date = new Date(isoString);
+  if (!isNaN(date.getTime())) {
+    // For hourly buckets, show time; for daily buckets, show date only
+    return bucket.includes(":") ? date.toLocaleString() : date.toLocaleDateString();
+  }
+  return bucket;
+}
+
 function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (active && payload && payload.length) {
+    const displayLabel = formatBucketToLocalTime(label || "");
     return (
       <div
         style={{
@@ -21,7 +36,7 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
           color: "#161616",
         }}
       >
-        <p style={{ margin: "0 0 4px 0", color: "#4d4c4c", fontWeight: 400 }}>{label}</p>
+        <p style={{ margin: "0 0 4px 0", color: "#4d4c4c", fontWeight: 400 }}>{displayLabel}</p>
         {payload.map((entry, index) => (
           <p key={index} style={{ margin: "2px 0", color: entry.color }}>
             {entry.name}: {entry.value}
@@ -51,7 +66,7 @@ export function TimelineChart({ title, subtitle, data, dataKeys, unit }: Timelin
             ))}
           </defs>
           <CartesianGrid strokeDasharray="4 4" stroke="#3f404d" />
-          <XAxis dataKey="bucket" tick={{ fill: "#d6d7df", fontSize: 12 }} />
+          <XAxis dataKey="bucket" tick={{ fill: "#d6d7df", fontSize: 12 }} tickFormatter={formatBucketToLocalTime} />
           <YAxis tick={{ fill: "#d6d7df", fontSize: 12 }} unit={unit} />
           <Tooltip content={<CustomTooltip />} />
           {dataKeys.length > 1 && <Legend />}
