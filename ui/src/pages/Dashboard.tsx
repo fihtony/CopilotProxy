@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient, type OverviewResponse } from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
+import { formatDate } from "../utils/dateFormatter";
 import { HealthIndicator } from "../components/HealthIndicator";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
@@ -231,7 +232,7 @@ export function Dashboard() {
                 <td>{item.totalCalls}</td>
                 <td>{item.successRate}%</td>
                 <td>{Math.round(item.avgResponseTime)} ms</td>
-                <td>{new Date(item.createdAt).toLocaleDateString()}</td>
+                <td>{formatDate(item.createdAt)}</td>
               </tr>
             ))}
           </tbody>

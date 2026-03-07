@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { apiClient, type KeyStatsResponse } from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
+import { formatDateTime } from "../utils/dateFormatter";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
@@ -90,12 +91,10 @@ export function KeyDetail() {
                 <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>model:</span> {data?.item.model ?? ""}
               </span>
               <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span>{" "}
-                {data?.item.created_at ? new Date(data.item.created_at).toLocaleString() : "—"}
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span> {formatDateTime(data?.item.created_at)}
               </span>
               <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span>{" "}
-                {data?.item.last_used_at ? new Date(data.item.last_used_at).toLocaleString() : "—"}
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span> {formatDateTime(data?.item.last_used_at)}
               </span>
             </p>
           </div>
@@ -160,28 +159,28 @@ export function KeyDetail() {
         />
       </div>
 
-      {/* Calls by IP and Host */}
+      {/* Source: Host & IP */}
       {(data?.callsByIpAndHost?.length ?? 0) > 0 && (
         <div className="table-card">
           <div className="section-head">
-            <h3>Calls by IP &amp; Host</h3>
+            <h3>Source: Host &amp; IP</h3>
             <span className="section-sub">{timeWindow}</span>
           </div>
           <table>
             <thead>
               <tr>
-                <th>IP Address</th>
                 <th>Host</th>
+                <th>IP Address</th>
                 <th style={{ textAlign: "right" }}>Calls</th>
               </tr>
             </thead>
             <tbody>
               {data?.callsByIpAndHost.map((row, i) => (
                 <tr key={i}>
+                  <td>{row.host}</td>
                   <td>
                     <code>{row.ip_address}</code>
                   </td>
-                  <td>{row.host}</td>
                   <td style={{ textAlign: "right" }}>{row.calls}</td>
                 </tr>
               ))}
@@ -208,7 +207,7 @@ export function KeyDetail() {
             <tbody>
               {data?.recentErrors.map((err) => (
                 <tr key={err.id}>
-                  <td>{new Date(err.timestamp).toLocaleString()}</td>
+                  <td>{formatDateTime(err.timestamp)}</td>
                   <td>{err.path}</td>
                   <td>{err.status_code}</td>
                   <td className="error-cell">{err.error_message ?? "—"}</td>

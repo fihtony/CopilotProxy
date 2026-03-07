@@ -1,4 +1,5 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend, type TooltipProps } from "recharts";
+import { formatBucketToLocalTime } from "../utils/dateFormatter";
 
 interface TimelineChartProps {
   title: string;
@@ -7,20 +8,6 @@ interface TimelineChartProps {
   data: any[];
   dataKeys: Array<{ key: string; color: string; label?: string }>;
   unit?: string;
-}
-
-// Helper function to convert UTC bucket string to local time display
-function formatBucketToLocalTime(bucket: string): string {
-  if (!bucket) return bucket;
-  // Bucket format: "2026-03-07 18:00:00" (24h) or "2026-03-07" (7d/30d/90d)
-  // SQLite strftime uses the timestamp as-is (UTC), so parse as UTC and convert to local
-  const isoString = bucket.includes(":") ? bucket.replace(" ", "T") + "Z" : bucket + "T00:00:00Z";
-  const date = new Date(isoString);
-  if (!isNaN(date.getTime())) {
-    // For hourly buckets, show time; for daily buckets, show date only
-    return bucket.includes(":") ? date.toLocaleString() : date.toLocaleDateString();
-  }
-  return bucket;
 }
 
 function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
@@ -37,11 +24,23 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
         }}
       >
         <p style={{ margin: "0 0 4px 0", color: "#4d4c4c", fontWeight: 400 }}>{displayLabel}</p>
-        {payload.map((entry, index) => (
-          <p key={index} style={{ margin: "2px 0", color: entry.color }}>
-            {entry.name}: {entry.value}
-          </p>
-        ))}
+        {payload.map((entry, index) => {
+          // Format the label: remove trailing unit indicators and format properly
+          let label = entry.name || "";
+          let displayValue: string | number | undefined = entry.value;
+
+          // Special case: if label ends with %, remove it from label and add to value
+          if (label.endsWith("%") && typeof entry.value === "number") {
+            label = label.slice(0, -1).trim();
+            displayValue = `${entry.value}%`;
+          }
+
+          return (
+            <p key={index} style={{ margin: "2px 0", color: entry.color }}>
+              {label}: {displayValue}
+            </p>
+          );
+        })}
       </div>
     );
   }

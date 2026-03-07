@@ -1,3 +1,5 @@
+import { formatDateTime } from "../utils/dateFormatter";
+
 interface RequestItem {
   id: number;
   timestamp: string;
@@ -33,7 +35,7 @@ export function RequestTable({ items }: { items: RequestItem[] }) {
         <tbody>
           {items.map((item) => (
             <tr key={item.id} data-testid="history-row">
-              <td>{new Date(item.timestamp).toLocaleString()}</td>
+              <td>{formatDateTime(item.timestamp)}</td>
               <td>{item.path}</td>
               <td>{item.status_code}</td>
               <td>{item.response_time_ms} ms</td>

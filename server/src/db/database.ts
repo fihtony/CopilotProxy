@@ -206,19 +206,23 @@ function percentile(sorted: number[], p: number): number {
 }
 
 function toWindowStart(window: TimeWindow) {
-  const ms = Date.now();
-  const offsets: Record<TimeWindow, number> = {
-    "24h": 24 * 60 * 60 * 1000,
-    "7d": 7 * 24 * 60 * 60 * 1000,
-    "30d": 30 * 24 * 60 * 60 * 1000,
-    "90d": 90 * 24 * 60 * 60 * 1000,
-  };
-  return new Date(ms - offsets[window]).toISOString();
+  if (window === "24h") {
+    // Rolling 24-hour window from the current moment
+    return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  }
+  // For multi-day windows: start from midnight of (N-1) days ago in local time
+  // so the result contains exactly N calendar day buckets including today.
+  const daysBack: Record<string, number> = { "7d": 6, "30d": 29, "90d": 89 };
+  const now = new Date();
+  const todayAtMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return new Date(todayAtMidnight.getTime() - daysBack[window] * 24 * 60 * 60 * 1000).toISOString();
 }
 
 function bucketExpression(window: TimeWindow) {
-  if (window === "24h") return "strftime('%Y-%m-%d %H:00:00', timestamp)";
-  return "strftime('%Y-%m-%d', timestamp)";
+  // Use datetime(timestamp, 'localtime') so each bucket aligns to the user's
+  // local calendar day/hour rather than UTC.
+  if (window === "24h") return "strftime('%Y-%m-%d %H:00:00', datetime(timestamp, 'localtime'))";
+  return "strftime('%Y-%m-%d', datetime(timestamp, 'localtime'))";
 }
 
 function computePercentiles(windowStart: string, keyFilter?: number) {

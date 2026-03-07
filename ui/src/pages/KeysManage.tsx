@@ -2,15 +2,11 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, type ApiKeyItem, type HealthCheckResponse, type SettingsResponse } from "../api/client";
 import { Modal } from "../components/Modal";
+import { formatDateTime } from "../utils/dateFormatter";
 
 interface CreateResponse {
   item: ApiKeyItem;
   rawKey: string;
-}
-
-function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
 }
 
 export function KeysManage() {
