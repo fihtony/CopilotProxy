@@ -33,6 +33,8 @@ export interface RequestLogRecord {
   modelRequested: string | null;
   modelUsed: string;
   errorMessage: string | null;
+  ipAddress: string | null;
+  host: string | null;
 }
 
 export interface SettingsRecord {

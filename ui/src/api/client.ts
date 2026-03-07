@@ -103,6 +103,11 @@ export interface KeyStatsResponse {
     status_code: number;
     error_message: string | null;
   }>;
+  callsByIpAndHost: Array<{
+    ip_address: string;
+    host: string;
+    calls: number;
+  }>;
 }
 
 export interface SettingsResponse {

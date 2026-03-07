@@ -160,6 +160,36 @@ export function KeyDetail() {
         />
       </div>
 
+      {/* Calls by IP and Host */}
+      {(data?.callsByIpAndHost?.length ?? 0) > 0 && (
+        <div className="table-card">
+          <div className="section-head">
+            <h3>Calls by IP &amp; Host</h3>
+            <span className="section-sub">{timeWindow}</span>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>IP Address</th>
+                <th>Host</th>
+                <th style={{ textAlign: "right" }}>Calls</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data?.callsByIpAndHost.map((row, i) => (
+                <tr key={i}>
+                  <td>
+                    <code>{row.ip_address}</code>
+                  </td>
+                  <td>{row.host}</td>
+                  <td style={{ textAlign: "right" }}>{row.calls}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Recent Errors */}
       {(data?.recentErrors?.length ?? 0) > 0 && (
         <div className="table-card">

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS requests (
   model_requested TEXT,
   model_used TEXT NOT NULL,
   error_message TEXT,
+  ip_address TEXT,
+  host TEXT,
   FOREIGN KEY (api_key_id) REFERENCES api_keys(id)
 );
 

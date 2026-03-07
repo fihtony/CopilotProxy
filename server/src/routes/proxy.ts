@@ -11,6 +11,11 @@ async function handleProxy(req: Request, res: Response, path: string) {
   const requestedModel = typeof req.body?.model === "string" ? req.body.model : null;
   const modelUsed = req.apiKey?.model ?? "gpt-5-mini";
   const copilotUrl = getCachedSettings().copilot_url;
+  const clientIp =
+    (typeof req.headers["x-forwarded-for"] === "string" ? req.headers["x-forwarded-for"].split(",")[0].trim() : null) ??
+    req.socket.remoteAddress ??
+    null;
+  const clientHost = (req.headers["host"] as string | undefined) ?? null;
 
   try {
     const upstreamStart = Date.now();
@@ -38,6 +43,8 @@ async function handleProxy(req: Request, res: Response, path: string) {
       modelRequested: requestedModel,
       modelUsed,
       errorMessage: upstream.status >= 400 ? JSON.stringify(upstream.data) : null,
+      ipAddress: clientIp,
+      host: clientHost,
     });
 
     return res.status(upstream.status).json(upstream.data);
@@ -57,6 +64,8 @@ async function handleProxy(req: Request, res: Response, path: string) {
       modelRequested: requestedModel,
       modelUsed,
       errorMessage: error instanceof Error ? error.message : "Unknown proxy error",
+      ipAddress: clientIp,
+      host: clientHost,
     });
 
     return res.status(502).json({ error: { message: "Upstream request failed" } });

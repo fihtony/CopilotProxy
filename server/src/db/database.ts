@@ -27,6 +27,12 @@ if (!columnExists("requests", "proxy_time_ms")) {
 if (!columnExists("api_keys", "is_deleted")) {
   db.exec("ALTER TABLE api_keys ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0");
 }
+if (!columnExists("requests", "ip_address")) {
+  db.exec("ALTER TABLE requests ADD COLUMN ip_address TEXT");
+}
+if (!columnExists("requests", "host")) {
+  db.exec("ALTER TABLE requests ADD COLUMN host TEXT");
+}
 
 // Seed default settings rows if not present
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
@@ -78,7 +84,15 @@ export function getApiKeyByHash(hash: string) {
 }
 
 export function getApiKeyById(id: number) {
-  return db.prepare("SELECT * FROM api_keys WHERE id = ?").get(id) as ApiKeyRecord | undefined;
+  return db
+    .prepare(
+      `SELECT api_keys.*, MAX(requests.timestamp) AS last_used_at
+       FROM api_keys
+       LEFT JOIN requests ON requests.api_key_id = api_keys.id
+       WHERE api_keys.id = ?
+       GROUP BY api_keys.id`,
+    )
+    .get(id) as (ApiKeyRecord & { last_used_at: string | null }) | undefined;
 }
 
 export function listApiKeys(search?: string, sortBy?: string, sortDir?: string) {
@@ -154,8 +168,8 @@ export function insertRequestLog(record: RequestLogRecord) {
     INSERT INTO requests (
       api_key_id, timestamp, method, path, status_code, success, response_time_ms, proxy_time_ms,
       prompt_tokens, completion_tokens, total_tokens,
-      model_requested, model_used, error_message
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      model_requested, model_used, error_message, ip_address, host
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   ).run(
     record.apiKeyId,
@@ -172,6 +186,8 @@ export function insertRequestLog(record: RequestLogRecord) {
     record.modelRequested,
     record.modelUsed,
     record.errorMessage,
+    record.ipAddress ?? null,
+    record.host ?? null,
   );
 }
 
@@ -348,7 +364,22 @@ export function getKeyStats(id: number, window: TimeWindow | null) {
     )
     .all(id, windowStart);
 
-  return { stats: { ...stats, ...pValues }, timeline, recentErrors };
+  const callsByIpAndHost = db
+    .prepare(
+      `
+    SELECT
+      COALESCE(ip_address, 'Unknown') AS ip_address,
+      COALESCE(host, 'Unknown') AS host,
+      COUNT(*) AS calls
+    FROM requests
+    WHERE api_key_id = ? AND timestamp >= ?
+    GROUP BY ip_address, host
+    ORDER BY calls DESC
+  `,
+    )
+    .all(id, windowStart) as Array<{ ip_address: string; host: string; calls: number }>;
+
+  return { stats: { ...stats, ...pValues }, timeline, recentErrors, callsByIpAndHost };
 }
 
 export function getKeyHistory(id: number, page: number, limit: number) {
