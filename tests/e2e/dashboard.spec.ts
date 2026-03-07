@@ -23,24 +23,32 @@ async function seedKeyAndTraffic(page: Page) {
   return { keyId };
 }
 
-test("TC-UI-01/07/08: renders overview metrics and key dashboard timeline", async ({ page }) => {
+test("TC-UI-01/07/08: renders dashboard metrics and key detail timeline", async ({ page }) => {
   await expect.poll(async () => (await page.request.get(`${PROXY_URL}/health`)).status()).toBe(200);
 
   const { keyId } = await seedKeyAndTraffic(page);
 
-  // TC-UI-01: Overview page renders
+  // TC-UI-01: Dashboard page renders
   await page.goto("/");
-  await expect(page.getByText("Copilot Proxy command deck")).toBeVisible();
+  await expect(page.getByText("Dashboard")).toBeVisible();
   await expect(page.getByText("Total Calls", { exact: true })).toBeVisible();
   await expect(page.getByText("Success Rate", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Avg Proxy Latency", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Avg Response Time", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Avg Tokens", { exact: true }).first()).toBeVisible();
+
+  // Health indicator should be present
+  await expect(page.getByTestId("health-indicator")).toBeVisible();
+
+  // Time window buttons
   await page.getByRole("button", { name: "7d" }).click();
-  await expect(page.getByText("Window 7d")).toBeVisible();
+  // Charts should be visible
+  await expect(page.getByTestId("timeline-chart").first()).toBeVisible();
 
   // TC-UI-03/TC-STATS-08: Navigate to key detail and verify timeline
   await page.goto(`/keys/${keyId}`);
   await expect(page.getByText("Key Dashboard")).toBeVisible();
   await expect(page.getByTestId("timeline-chart")).toBeVisible();
-  await expect(page.getByText("Recent Requests")).toBeVisible();
 });
 
 test("TC-UI-04: back navigation from key detail returns to key management", async ({ page }) => {
@@ -52,5 +60,5 @@ test("TC-UI-04: back navigation from key detail returns to key management", asyn
 
   await page.getByRole("link", { name: /back to key management/i }).click();
   await expect(page).toHaveURL(/\/keys/);
-  await expect(page.getByText("Create a new key")).toBeVisible();
+  await expect(page.getByText("API Keys")).toBeVisible();
 });

@@ -9,7 +9,7 @@ export function readOverview(window: TimeWindow) {
   return getOverview(window);
 }
 
-export function readKeyStats(id: number, window: TimeWindow) {
+export function readKeyStats(id: number, window: TimeWindow | null) {
   return getKeyStats(id, window);
 }
 

@@ -1,7 +1,8 @@
 import { NavLink, Route, Routes } from "react-router-dom";
-import { Overview } from "./pages/Overview";
+import { Dashboard } from "./pages/Dashboard";
 import { KeysManage } from "./pages/KeysManage";
 import { KeyDetail } from "./pages/KeyDetail";
+import { Settings } from "./pages/Settings";
 
 export default function App() {
   return (
@@ -13,16 +14,18 @@ export default function App() {
         </div>
         <nav>
           <NavLink to="/" end>
-            Overview
+            Dashboard
           </NavLink>
           <NavLink to="/keys">API Keys</NavLink>
+          <NavLink to="/settings">Settings</NavLink>
         </nav>
       </aside>
       <main className="content-shell">
         <Routes>
-          <Route path="/" element={<Overview />} />
+          <Route path="/" element={<Dashboard />} />
           <Route path="/keys" element={<KeysManage />} />
           <Route path="/keys/:id" element={<KeyDetail />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

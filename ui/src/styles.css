@@ -42,6 +42,11 @@ button {
   font-weight: 700;
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 button.danger {
   background: rgba(255, 90, 95, 0.18);
   color: #ffd6d7;
@@ -61,8 +66,7 @@ input {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 260px 1fr;
+  display: block;
   min-height: 100vh;
 }
 
@@ -71,6 +75,14 @@ input {
   border-right: 1px solid var(--border);
   background: rgba(8, 10, 14, 0.72);
   backdrop-filter: blur(24px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar h2,
@@ -105,6 +117,9 @@ a {
 
 .content-shell {
   padding: 1.6rem;
+  margin-left: 260px;
+  min-height: 100vh;
+  overflow-y: auto;
 }
 
 .page-stack {
@@ -172,6 +187,10 @@ a {
 
 .metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-grid.metric-grid-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .panel-grid {
@@ -253,13 +272,17 @@ tbody tr:hover {
 }
 
 @media (max-width: 1024px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
   .sidebar {
     border-right: none;
     border-bottom: 1px solid var(--border);
+    position: static;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .content-shell {
+    margin-left: 0;
   }
 
   .metric-grid,
@@ -271,6 +294,14 @@ tbody tr:hover {
 @media (max-width: 768px) {
   .content-shell {
     padding: 1rem;
+  }
+
+  .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    padding: 1.5rem 1rem;
   }
 
   .hero-card,
@@ -305,4 +336,348 @@ tbody tr:hover {
     padding-left: 0;
     padding-right: 0;
   }
+}
+
+/* ── Chart side-by-side row ─────────────────────────────────────────── */
+.chart-row-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+}
+
+.modal-box {
+  background: var(--panel-strong);
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  padding: 1.6rem;
+  width: min(480px, 90vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.2rem;
+  padding: 0.3rem 0.6rem;
+}
+
+.modal-close:hover {
+  color: var(--text);
+}
+
+/* ── Health indicator ────────────────────────────────────────────────── */
+.health-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.health-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.health-dot.ok {
+  background: #34d399;
+  box-shadow: 0 0 6px #34d399;
+}
+
+.health-dot.fail {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+
+/* ── Deleted key row ─────────────────────────────────────────────────── */
+.key-deleted {
+  background: rgba(255, 90, 95, 0.08) !important;
+  opacity: 0.7;
+}
+
+.badge-deleted {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 90, 95, 0.2);
+  color: #ffd6d7;
+  font-size: 0.75rem;
+}
+
+/* ── Clickable table row ─────────────────────────────────────────────── */
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: rgba(255, 122, 24, 0.06) !important;
+}
+
+/* ── Table search ────────────────────────────────────────────────────── */
+.table-search-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.table-search {
+  width: 240px;
+  padding: 0.55rem 2rem 0.55rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+
+.table-search-clear {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  line-height: 1;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.table-search-clear:hover {
+  color: var(--text);
+}
+
+/* ── Sortable table header ───────────────────────────────────────────── */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: var(--accent);
+}
+
+/* ── Sort icon ───────────────────────────────────────────────────────── */
+.sort-icon {
+  display: inline-block;
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.sort-inactive {
+  opacity: 0.5;
+}
+
+.sort-active {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* ── Small button ────────────────────────────────────────────────────── */
+.btn-sm {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.82rem;
+  border-radius: 10px;
+  margin-right: 0.3rem;
+}
+
+/* Back button ────────────────────────────────────────────────────────── */
+.btn-back {
+  padding: 0.5rem 0.7rem;
+  font-size: 1.2rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  border: 1px solid var(--border);
+  transition: all 160ms ease;
+  flex-shrink: 0;
+}
+
+.btn-back:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--accent);
+}
+
+/* Secondary/neutral button variant — not orange */
+button.secondary,
+.btn-sm.secondary {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+button.secondary:hover,
+.btn-sm.secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Key display ─────────────────────────────────────────────────────── */
+.key-display {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  word-break: break-all;
+}
+
+.key-display code {
+  flex: 1;
+}
+
+/* ── Settings form ───────────────────────────────────────────────────── */
+.settings-form {
+  display: grid;
+  gap: 1.2rem;
+  max-width: 700px;
+}
+
+.settings-form select,
+.model-select {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(10, 12, 18, 0.72);
+  color: var(--text);
+  padding: 0.85rem 2.5rem 0.85rem 1rem;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23abafc1' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.9rem center;
+}
+
+/* URL input field wrapper */
+.settings-url-row {
+  display: flex;
+  gap: 1.2rem;
+  align-items: flex-start;
+}
+
+.settings-url-col {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.settings-url-input-wrap {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.settings-url-input-wrap input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-url-input-wrap button {
+  flex-shrink: 0;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+}
+
+.settings-url-input-wrap button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.model-list {
+  width: 240px;
+  flex-shrink: 0;
+  padding: 0.8rem;
+  border-radius: 14px;
+  background: rgba(10, 12, 18, 0.5);
+}
+
+.model-list h4 {
+  margin: 0 0 0.5rem;
+}
+
+.model-list ul {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.callout-error {
+  background: rgba(255, 90, 95, 0.15);
+  border-color: rgba(255, 90, 95, 0.4);
+}
+
+.save-ok {
+  color: #34d399;
+  font-size: 0.88rem;
+}
+
+/* ── Error cell ──────────────────────────────────────────────────────── */
+.error-cell {
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1024px) {
+  .chart-row-split {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-grid.metric-grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .settings-url-row {
+    flex-direction: column;
+  }
+}
+
+/* ── Metric P-value tags ─────────────────────────────────────────────── */
+.metric-hint-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.metric-tag {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
 }

@@ -30,7 +30,7 @@ test.describe("Stats tracking", () => {
 
   test("TC-STATS-01: successful requests increment total calls", async ({ request }) => {
     // Baseline
-    const before = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=1h`);
+    const before = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=24h`);
     const { stats: statsBefore } = await before.json();
     const baseCalls = statsBefore.totalCalls as number;
 
@@ -39,7 +39,7 @@ test.describe("Stats tracking", () => {
       await sendRequest(request, `hello-${i}`);
     }
 
-    const after = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=1h`);
+    const after = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=24h`);
     const { stats: statsAfter } = await after.json();
 
     expect(statsAfter.totalCalls).toBe(baseCalls + 3);
@@ -49,7 +49,7 @@ test.describe("Stats tracking", () => {
   test("TC-STATS-03: response time is recorded", async ({ request }) => {
     await sendRequest(request, "response time test");
 
-    const statsResponse = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=1h`);
+    const statsResponse = await request.get(`${PROXY_URL}/api/keys/${keyId}/stats?window=24h`);
     const { stats } = await statsResponse.json();
 
     expect(stats.avgResponseTime).toBeGreaterThan(0);
@@ -83,7 +83,7 @@ test.describe("Stats tracking", () => {
       data: { model: "x", messages: [{ role: "user", content: "overview test" }] },
     });
 
-    const overview = await request.get(`${PROXY_URL}/api/overview?window=1h`);
+    const overview = await request.get(`${PROXY_URL}/api/overview?window=24h`);
     const { summary } = await overview.json();
 
     expect(summary.totalCalls).toBeGreaterThan(0);
@@ -92,13 +92,13 @@ test.describe("Stats tracking", () => {
     await request.delete(`${PROXY_URL}/api/keys/${item2.id}`);
   });
 
-  test("TC-STATS-06: time window 30d totals >= 1h totals", async ({ request }) => {
-    const r1h = await request.get(`${PROXY_URL}/api/overview?window=1h`);
+  test("TC-STATS-06: time window 30d totals >= 24h totals", async ({ request }) => {
+    const r24h = await request.get(`${PROXY_URL}/api/overview?window=24h`);
     const r30d = await request.get(`${PROXY_URL}/api/overview?window=30d`);
-    const { summary: s1h } = await r1h.json();
+    const { summary: s24h } = await r24h.json();
     const { summary: s30d } = await r30d.json();
 
-    expect(s30d.totalCalls).toBeGreaterThanOrEqual(s1h.totalCalls);
+    expect(s30d.totalCalls).toBeGreaterThanOrEqual(s24h.totalCalls);
   });
 });
 
@@ -122,8 +122,9 @@ test.describe("Stats UI — metric cards and timeline", () => {
     await page.goto("/");
     await expect(page.getByText("Total Calls", { exact: true })).toBeVisible();
     await expect(page.getByText("Success Rate", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Average Latency", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Token Volume", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Avg Proxy Latency", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Avg Response Time", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Avg Tokens", { exact: true }).first()).toBeVisible();
 
     await request.delete(`${PROXY_URL}/api/keys/${item.id}`);
   });

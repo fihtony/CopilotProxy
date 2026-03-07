@@ -2,6 +2,16 @@
 
 An OpenAI-compatible API gateway that validates API keys, enforces per-key model binding, and forwards requests to Copilot Connect.
 
+## Features
+
+- **Per-key model binding** — each API key is locked to a specific model; the `model` field in incoming requests is always ignored
+- **Dashboard** — real-time metrics with 5 cards (total calls, success rate, proxy latency, response time, avg tokens), P90/P95/P99 percentiles, and interactive timecharts
+- **Health indicator** — polls upstream Copilot Connect every 30 seconds
+- **API key management** — create, edit, and soft-delete keys via modal-based UI; search, sort, and filter
+- **Key-level dashboard** — per-key statistics, timeline charts, and recent error logs
+- **Settings** — configure upstream Copilot URL and default model; test connection to discover available models
+- **Soft delete** — deleted keys retain historical data and statistics; proxy rejects them with 401
+
 ## Requirements
 
 - Node.js 18+
@@ -88,12 +98,13 @@ Copy and edit the server environment:
 cp server/.env.example server/.env   # if available, or set directly
 ```
 
-| Variable        | Default                         | Description                                                                     |
-| --------------- | ------------------------------- | ------------------------------------------------------------------------------- |
-| `PORT`          | `3000`                          | Proxy server port                                                               |
-| `COPILOT_URL`   | `http://127.0.0.1:1288`         | Upstream URL. Use `:1289` for the mock server, `:1288` for real Copilot Connect |
-| `MOCK_MODE`     | `true`                          | `true` = internal mocks (ignores `COPILOT_URL`). `false` = forward to upstream  |
-| `DATABASE_PATH` | `server/data/copilot-server.db` | SQLite database path                                                            |
+| Variable        | Default                   | Description                                                                                 |
+| --------------- | ------------------------- | ------------------------------------------------------------------------------------------- |
+| `PORT`          | `3000`                    | Proxy server port                                                                           |
+| `COPILOT_URL`   | `http://127.0.0.1:1288`   | Upstream URL (initial value; can be changed in Settings UI). `:1289` = mock, `:1288` = real |
+| `DATABASE_PATH` | `./data/copilot-proxy.db` | SQLite database path                                                                        |
+
+> `COPILOT_URL` seeds the `settings` table on first run. After that, the URL is managed via the Settings page or `PUT /api/settings`.
 
 ## Project Structure
 
@@ -102,14 +113,37 @@ CopilotProxy/
 ├── server/          # Proxy server (Express + SQLite)
 │   └── src/
 │       ├── routes/  # /v1/* proxy, /api/* admin
-│       ├── services/
+│       ├── services/   # proxyService, statsService, settingsService
 │       ├── middleware/
 │       └── db/
 ├── ui/              # Admin dashboard (React + Vite)
+│   └── src/
+│       ├── pages/   # Dashboard, KeysManage, KeyDetail, Settings
+│       └── components/  # MetricCard, TimelineChart, HealthIndicator, Modal
 ├── mockCopilot/     # Standalone mock Copilot Connect server
+├── tests/
+│   ├── api/         # Jest + supertest integration tests
+│   └── e2e/         # Playwright end-to-end tests
 ├── start.sh
 └── stop.sh
 ```
+
+## Admin API
+
+| Method   | Endpoint                             | Description                                            |
+| -------- | ------------------------------------ | ------------------------------------------------------ |
+| `GET`    | `/api/keys?search=&sortBy=&sortDir=` | List keys with stats                                   |
+| `POST`   | `/api/keys`                          | Create key (model optional; defaults from settings)    |
+| `PATCH`  | `/api/keys/:id`                      | Update key name/model/is_active                        |
+| `DELETE` | `/api/keys/:id`                      | Soft-delete key (returns `200 { ok: true }`)           |
+| `GET`    | `/api/keys/:id/stats?window=`        | Key statistics, P-values, timeline, errors             |
+| `GET`    | `/api/keys/:id/history?page=&limit=` | Paginated request history                              |
+| `GET`    | `/api/overview?window=`              | Global metrics, P-values, timeline, key summaries      |
+| `GET`    | `/api/settings`                      | Read settings (copilot_url, default_model)             |
+| `PUT`    | `/api/settings`                      | Update settings                                        |
+| `GET`    | `/api/health/copilot`                | Test upstream connection (returns ok, latency, models) |
+
+Time windows: `24h`, `7d`, `30d`, `90d`
 
 ## Development
 
@@ -122,5 +156,9 @@ npm run dev
 Run tests:
 
 ```bash
+# API integration tests (Jest + supertest)
 npm run test:api
+
+# E2E tests (Playwright — auto-starts dev server)
+npm run test:e2e
 ```

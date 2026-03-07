@@ -1,4 +1,4 @@
-export type TimeWindow = "1h" | "24h" | "7d" | "30d";
+export type TimeWindow = "24h" | "7d" | "30d" | "90d";
 
 export interface ApiKeyRecord {
   id: number;
@@ -7,6 +7,7 @@ export interface ApiKeyRecord {
   name: string;
   model: string;
   is_active: number;
+  is_deleted: number;
   created_at: string;
   updated_at: string;
 }
@@ -25,10 +26,16 @@ export interface RequestLogRecord {
   statusCode: number;
   success: number;
   responseTimeMs: number;
+  proxyTimeMs: number;
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
   modelRequested: string | null;
   modelUsed: string;
   errorMessage: string | null;
+}
+
+export interface SettingsRecord {
+  copilot_url: string;
+  default_model: string;
 }

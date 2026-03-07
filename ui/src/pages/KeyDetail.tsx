@@ -1,99 +1,193 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { apiClient } from "../api/client";
+import { useParams, useNavigate } from "react-router-dom";
+import { apiClient, type KeyStatsResponse } from "../api/client";
 import { MetricCard } from "../components/MetricCard";
-import { RequestTable } from "../components/RequestTable";
 import { TimelineChart } from "../components/TimelineChart";
 
-const windows = ["1h", "24h", "7d", "30d"] as const;
-
-interface HistoryResponse {
-  items: Array<{
-    id: number;
-    timestamp: string;
-    path: string;
-    status_code: number;
-    response_time_ms: number;
-    model_requested: string | null;
-    model_used: string;
-    total_tokens: number | null;
-    success: number;
-    error_message: string | null;
-  }>;
-  total: number;
-}
-
-interface StatsResponse {
-  item: {
-    id: number;
-    name: string;
-    key_preview: string;
-    model: string;
-  };
-  stats: {
-    totalCalls: number;
-    successRate: number;
-    avgResponseTime: number;
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  timeline: Array<{
-    bucket: string;
-    calls: number;
-    avgResponseTime: number;
-    successRate: number;
-  }>;
-}
+const windows = ["24h", "7d", "30d", "90d"] as const;
 
 export function KeyDetail() {
   const { id } = useParams();
-  const [window, setWindow] = useState<(typeof windows)[number]>("24h");
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [history, setHistory] = useState<HistoryResponse>({ items: [], total: 0 });
+  const navigate = useNavigate();
+  const [timeWindow, setTimeWindow] = useState<(typeof windows)[number]>("24h");
+  const [data, setData] = useState<KeyStatsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Always show page from beginning on load
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   useEffect(() => {
     if (!id) {
+      setIsLoading(false);
       return;
     }
+    setIsLoading(true);
+    apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?window=${timeWindow}`).then((r) => {
+      setData(r.data);
+      setIsLoading(false);
+    });
+  }, [id, timeWindow]);
 
-    apiClient.get<StatsResponse>(`/keys/${id}/stats?window=${window}`).then((response) => setStats(response.data));
-    apiClient.get<HistoryResponse>(`/keys/${id}/history?page=1&limit=20`).then((response) => setHistory(response.data));
-  }, [id, window]);
+  const handleBack = () => {
+    // Try to restore scroll position from where we came
+    const dashboardPos = sessionStorage.getItem("dashboardScrollPos");
+    const keysManagePos = sessionStorage.getItem("keysManageScrollPos");
+
+    // Determine which page we came from and restore appropriately
+    if (keysManagePos) {
+      sessionStorage.removeItem("keysManageScrollPos");
+      navigate(-1);
+      // Restore scroll after navigation
+      setTimeout(() => {
+        window.scrollTo(0, parseInt(keysManagePos, 10));
+      }, 0);
+    } else if (dashboardPos) {
+      sessionStorage.removeItem("dashboardScrollPos");
+      navigate(-1);
+      // Restore scroll after navigation
+      setTimeout(() => {
+        window.scrollTo(0, parseInt(dashboardPos, 10));
+      }, 0);
+    } else {
+      navigate(-1);
+    }
+  };
 
   if (!id) {
     return <div className="empty-state">Select an API key.</div>;
   }
 
+  const stats = data?.stats;
+  const isDeleted = data?.item.is_deleted === 1;
+
   return (
     <div className="page-stack">
       <div className="hero-card">
-        <div>
-          <span className="eyebrow">Key Dashboard</span>
-          <h1>{stats?.item.name ?? "Loading key..."}</h1>
-          <p>
-            {stats?.item.key_preview ?? ""} forcing model {stats?.item.model ?? ""}
-          </p>
-          <Link to="/keys">Back to key management</Link>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "1rem", flex: 1 }}>
+          <button className="btn-back" onClick={handleBack} title="Go back">
+            ←
+          </button>
+          <div>
+            <span className="eyebrow">Key Dashboard</span>
+
+            <h1>
+              {data?.item.name ?? "Loading key…"}
+              {isDeleted && (
+                <span className="badge-deleted" style={{ marginLeft: "0.2rem" }}>
+                  Deleted
+                </span>
+              )}
+            </h1>
+
+            <p style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem 1.5rem", alignItems: "baseline", margin: 0 }}>
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>api key:</span>{" "}
+                <code style={{ marginLeft: "0.25rem" }}>{data?.item.key_preview ?? ""}</code>
+              </span>
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>model:</span> {data?.item.model ?? ""}
+              </span>
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span>{" "}
+                {data?.item.created_at ? new Date(data.item.created_at).toLocaleString() : "—"}
+              </span>
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span>{" "}
+                {data?.item.last_used_at ? new Date(data.item.last_used_at).toLocaleString() : "—"}
+              </span>
+            </p>
+          </div>
         </div>
-        <div className="segmented-control">
-          {windows.map((item) => (
-            <button key={item} className={item === window ? "active" : ""} onClick={() => setWindow(item)}>
-              {item}
-            </button>
-          ))}
-        </div>
+        {!isDeleted && (
+          <div className="segmented-control">
+            {windows.map((w) => (
+              <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => setTimeWindow(w)}>
+                {w}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="metric-grid">
-        <MetricCard label="Total Calls" value={String(stats?.stats.totalCalls ?? 0)} />
-        <MetricCard label="Success Rate" value={`${stats?.stats.successRate ?? 0}%`} />
-        <MetricCard label="Average Latency" value={`${Math.round(stats?.stats.avgResponseTime ?? 0)} ms`} />
-        <MetricCard label="Total Tokens" value={String(stats?.stats.totalTokens ?? 0)} />
+      <div className="metric-grid metric-grid-5">
+        <MetricCard label="Total Calls" value={String(stats?.totalCalls ?? 0)} hints={[timeWindow]} />
+        <MetricCard label="Success Rate" value={`${stats?.successRate ?? 0}%`} />
+        <MetricCard
+          label="Avg Proxy Latency"
+          value={`${Math.round(stats?.avgProxyTime ?? 0)} ms`}
+          hints={[`P90: ${stats?.p90ProxyTime ?? 0}`, `P95: ${stats?.p95ProxyTime ?? 0}`, `P99: ${stats?.p99ProxyTime ?? 0}`]}
+        />
+        <MetricCard
+          label="Avg Response Time"
+          value={`${Math.round(stats?.avgResponseTime ?? 0)} ms`}
+          hints={[`P90: ${stats?.p90ResponseTime ?? 0}`, `P95: ${stats?.p95ResponseTime ?? 0}`, `P99: ${stats?.p99ResponseTime ?? 0}`]}
+        />
+        <MetricCard
+          label="Avg Tokens"
+          value={String(Math.round(stats?.avgTokensPerRequest ?? 0))}
+          hints={[`P90: ${stats?.p90Tokens ?? 0}`, `P95: ${stats?.p95Tokens ?? 0}`, `P99: ${stats?.p99Tokens ?? 0}`]}
+        />
       </div>
 
-      <TimelineChart data={stats?.timeline ?? []} />
-      <RequestTable items={history.items} />
+      {/* Full-width total calls chart */}
+      <TimelineChart
+        title="Total Calls"
+        subtitle="Number of calls over time"
+        data={data?.timeline ?? []}
+        dataKeys={[{ key: "calls", color: "#ff7a18", label: "Calls" }]}
+      />
+
+      {/* Side-by-side: Avg Latency + Success Rate */}
+      <div className="chart-row-split">
+        <TimelineChart
+          title="Avg Response Latency"
+          subtitle="Proxy latency vs total response time"
+          data={data?.timeline ?? []}
+          dataKeys={[
+            { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
+            { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
+          ]}
+          unit=" ms"
+        />
+        <TimelineChart
+          title="Success Rate"
+          subtitle="Percentage of successful requests"
+          data={data?.timeline ?? []}
+          dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
+          unit="%"
+        />
+      </div>
+
+      {/* Recent Errors */}
+      {(data?.recentErrors?.length ?? 0) > 0 && (
+        <div className="table-card">
+          <div className="section-head">
+            <h3>Recent Errors</h3>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Path</th>
+                <th>Status</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data?.recentErrors.map((err) => (
+                <tr key={err.id}>
+                  <td>{new Date(err.timestamp).toLocaleString()}</td>
+                  <td>{err.path}</td>
+                  <td>{err.status_code}</td>
+                  <td className="error-cell">{err.error_message ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

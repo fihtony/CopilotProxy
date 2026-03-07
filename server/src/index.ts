@@ -1,6 +1,7 @@
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import "./db/database.js";
+import "./services/settingsService.js";
 
 const apiApp = createApp();
 apiApp.listen(config.port, () => {
