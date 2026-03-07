@@ -198,7 +198,7 @@
 
 1. Seed requests
 2. Navigate to `/` (Dashboard page)
-3. Check "Total Calls", "Success Rate", "Avg Proxy Latency", "Avg Response Time", "Avg Tokens"
+3. Check "Total Requests", "Success Rate", "Avg Proxy Latency", "Avg Response Time", "Avg Tokens"
    **Expected**: All 5 cards visible with P90/P95/P99 hints on latency and token cards
 
 ### TC-STATS-08 Timeline chart renders after making requests

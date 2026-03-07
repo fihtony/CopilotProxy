@@ -17,6 +17,8 @@ export function KeysManage() {
   const [sortBy, setSortBy] = useState("created_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showDeleted, setShowDeleted] = useState(false);
+  const [showCustomModel, setShowCustomModel] = useState(false);
+  const [defaultModel, setDefaultModel] = useState("");
 
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
@@ -35,9 +37,13 @@ export function KeysManage() {
   // Delete modal
   const [deleteItem, setDeleteItem] = useState<ApiKeyItem | null>(null);
 
-  // Restore scroll position on mount
+  // Restore scroll position on mount, and fetch default model for highlight
   useEffect(() => {
     window.scrollTo(0, 0);
+    apiClient
+      .get<SettingsResponse>("/settings")
+      .then((r) => setDefaultModel(r.data.default_model))
+      .catch(() => {});
   }, []);
 
   const load = useCallback(async () => {
@@ -134,7 +140,9 @@ export function KeysManage() {
     return sortDir === "asc" ? <span className="sort-icon sort-active">↑</span> : <span className="sort-icon sort-active">↓</span>;
   }
 
-  const visibleItems = showDeleted ? items : items.filter((i) => !i.is_deleted);
+  const visibleItems = (showDeleted ? items : items.filter((i) => !i.is_deleted)).filter(
+    (i) => !showCustomModel || (defaultModel && i.model !== defaultModel),
+  );
 
   return (
     <div className="page-stack">
@@ -159,6 +167,13 @@ export function KeysManage() {
               title={showDeleted ? "Hide deleted keys" : "Show deleted keys"}
             >
               {showDeleted ? "Hide Deleted" : "Show Deleted"}
+            </button>
+            <button
+              className={`btn-sm ${showCustomModel ? "" : "secondary"}`}
+              onClick={() => setShowCustomModel((v) => !v)}
+              title="Show only keys with a custom model"
+            >
+              Custom Model Only
             </button>
             <div className="table-search-wrapper">
               <input
@@ -211,7 +226,9 @@ export function KeysManage() {
                   </span>
                 </td>
                 <td>{item.key_preview}</td>
-                <td>{item.model}</td>
+                <td>
+                  <span className={defaultModel && item.model !== defaultModel ? "model-custom" : ""}>{item.model}</span>
+                </td>
                 <td>{formatDateTime(item.created_at)}</td>
                 <td>{formatDateTime(item.last_used_at)}</td>
                 <td onClick={(e) => e.stopPropagation()}>

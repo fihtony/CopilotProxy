@@ -42,6 +42,7 @@ export interface TimelinePoint {
 }
 
 export interface OverviewResponse {
+  defaultModel: string;
   summary: {
     totalCalls: number;
     successRate: number;

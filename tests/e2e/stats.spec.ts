@@ -120,7 +120,7 @@ test.describe("Stats UI — metric cards and timeline", () => {
     }
 
     await page.goto("/");
-    await expect(page.getByText("Total Calls", { exact: true })).toBeVisible();
+    await expect(page.getByText("Total Requests", { exact: true })).toBeVisible();
     await expect(page.getByText("Success Rate", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Avg Proxy Latency", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Avg Response Time", { exact: true }).first()).toBeVisible();

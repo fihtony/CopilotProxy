@@ -104,7 +104,9 @@ router.get("/keys/:id/history", (req, res) => {
 });
 
 router.get("/overview", (req, res) => {
-  res.json(readOverview(normalizeWindow(String(req.query.window ?? "24h"))));
+  const settings = getSettings();
+  const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")));
+  res.json({ ...overview, defaultModel: settings.default_model });
 });
 
 // ── Settings routes ─────────────────────────────────────────────────────────

@@ -111,7 +111,7 @@ export function KeyDetail() {
       </div>
 
       <div className="metric-grid metric-grid-5">
-        <MetricCard label="Total Calls" value={String(stats?.totalCalls ?? 0)} hints={[timeWindow]} />
+        <MetricCard label="Total Requests" value={String(stats?.totalCalls ?? 0)} hints={[timeWindow]} />
         <MetricCard label="Success Rate" value={`${stats?.successRate ?? 0}%`} />
         <MetricCard
           label="Avg Proxy Latency"
@@ -130,12 +130,12 @@ export function KeyDetail() {
         />
       </div>
 
-      {/* Full-width total calls chart */}
+      {/* Full-width total requests chart */}
       <TimelineChart
-        title="Total Calls"
-        subtitle="Number of calls over time"
+        title="Total Requests"
+        subtitle="Number of requests over time"
         data={data?.timeline ?? []}
-        dataKeys={[{ key: "calls", color: "#ff7a18", label: "Calls" }]}
+        dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
       />
 
       {/* Side-by-side: Avg Latency + Success Rate */}
@@ -171,7 +171,7 @@ export function KeyDetail() {
               <tr>
                 <th>Host</th>
                 <th>IP Address</th>
-                <th style={{ textAlign: "right" }}>Calls</th>
+                <th style={{ textAlign: "right" }}>Requests</th>
               </tr>
             </thead>
             <tbody>

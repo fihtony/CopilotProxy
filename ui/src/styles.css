@@ -422,6 +422,11 @@ tbody tr:hover {
   opacity: 0.7;
 }
 
+.model-custom {
+  color: #fbbf24;
+  font-weight: 600;
+}
+
 .badge-deleted {
   display: inline-block;
   margin-left: 0.5rem;

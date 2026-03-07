@@ -17,6 +17,7 @@ export function Dashboard() {
   const [sortBy, setSortBy] = useState("calls");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showDeleted, setShowDeleted] = useState(false);
+  const [showCustomModel, setShowCustomModel] = useState(false);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -32,6 +33,7 @@ export function Dashboard() {
   }, [timeWindow]);
 
   const summary = data?.summary;
+  const defaultModel = data?.defaultModel ?? "";
 
   // Client-side filter for the key table
   const filtered = (data?.keySummaries ?? []).filter((k) => {
@@ -82,7 +84,9 @@ export function Dashboard() {
     const vb = fn(b);
     return compareValues(va, vb) * dir;
   });
-  const sorted = showDeleted ? sortedAll : sortedAll.filter((k) => !k.isDeleted);
+  const sorted = (showDeleted ? sortedAll : sortedAll.filter((k) => !k.isDeleted)).filter(
+    (k) => !showCustomModel || (defaultModel && k.model !== defaultModel),
+  );
 
   function sortIcon(col: string) {
     if (sortBy !== col) return <span className="sort-icon sort-inactive">⇅</span>;
@@ -110,7 +114,7 @@ export function Dashboard() {
       </div>
 
       <div className="metric-grid metric-grid-5">
-        <MetricCard label="Total Calls" value={String(summary?.totalCalls ?? 0)} hints={[timeWindow]} />
+        <MetricCard label="Total Requests" value={String(summary?.totalCalls ?? 0)} hints={[timeWindow]} />
         <MetricCard label="Success Rate" value={`${summary?.successRate ?? 0}%`} />
         <MetricCard
           label="Avg Proxy Latency"
@@ -133,12 +137,12 @@ export function Dashboard() {
         />
       </div>
 
-      {/* Full-width: Total Calls chart */}
+      {/* Full-width: Total Requests chart */}
       <TimelineChart
-        title="Total Calls"
-        subtitle="Number of calls over time"
+        title="Total Requests"
+        subtitle="Number of requests over time"
         data={data?.timeline ?? []}
-        dataKeys={[{ key: "calls", color: "#ff7a18", label: "Calls" }]}
+        dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
       />
 
       {/* Side-by-side: Avg Latency + Success Rate */}
@@ -173,6 +177,13 @@ export function Dashboard() {
             >
               {showDeleted ? "Hide Deleted" : "Show Deleted"}
             </button>
+            <button
+              className={`btn-sm ${showCustomModel ? "" : "secondary"}`}
+              onClick={() => setShowCustomModel((v) => !v)}
+              title="Show only keys with a custom model"
+            >
+              Custom Model Only
+            </button>
             <div className="table-search-wrapper">
               <input
                 className="table-search"
@@ -195,16 +206,16 @@ export function Dashboard() {
               <th className="sortable" onClick={() => handleSort("name")}>
                 Name{sortIcon("name")}
               </th>
-              <th>Preview</th>
+              <th>API Key</th>
               <th>Model</th>
               <th className="sortable" onClick={() => handleSort("calls")}>
-                Calls{sortIcon("calls")}
+                Requests{sortIcon("calls")}
               </th>
               <th className="sortable" onClick={() => handleSort("success_rate")}>
                 Success{sortIcon("success_rate")}
               </th>
               <th className="sortable" onClick={() => handleSort("latency")}>
-                Latency{sortIcon("latency")}
+                Response{sortIcon("latency")}
               </th>
               <th className="sortable" onClick={() => handleSort("created_at")}>
                 Created{sortIcon("created_at")}
@@ -228,7 +239,9 @@ export function Dashboard() {
                   </span>
                 </td>
                 <td>{item.keyPreview}</td>
-                <td>{item.model}</td>
+                <td>
+                  <span className={defaultModel && item.model !== defaultModel ? "model-custom" : ""}>{item.model}</span>
+                </td>
                 <td>{item.totalCalls}</td>
                 <td>{item.successRate}%</td>
                 <td>{Math.round(item.avgResponseTime)} ms</td>
