@@ -8,6 +8,8 @@ export interface ApiKeyRecord {
   model: string;
   is_active: number;
   is_deleted: number;
+  created_by_name: string;
+  created_by_email: string;
   created_at: string;
   updated_at: string;
 }

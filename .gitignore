@@ -3,6 +3,7 @@ package-lock.json
 server/dist
 ui/dist
 data/
+docs/
 playwright-report
 test-results/
 .env

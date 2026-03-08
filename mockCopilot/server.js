@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 const app = express();
 const PORT = Number(process.env.PORT ?? 1289);
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -30,7 +30,8 @@ app.get("/v1/models", (_req, res) => {
 
 // POST /v1/chat/completions
 app.post("/v1/chat/completions", (req, res) => {
-  const { model = "gpt-5-mini", messages = [], stream = false } = req.body;
+  const { model = "gpt-5-mini", messages = [], stream = false, stream_options } = req.body;
+  const includeUsage = stream && stream_options?.include_usage === true;
 
   const completionId = `chatcmpl-${randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
@@ -41,9 +42,7 @@ app.post("/v1/chat/completions", (req, res) => {
     ? `[Mock/${model}] Echo: ${String(lastMessage.content ?? "").slice(0, 120)}`
     : `[Mock/${model}] Hello from Mock Copilot Connect.`;
 
-  const promptTokens = Array.isArray(messages)
-    ? messages.reduce((sum, m) => sum + estimateTokens(m.content), 0)
-    : 0;
+  const promptTokens = Array.isArray(messages) ? messages.reduce((sum, m) => sum + estimateTokens(m.content), 0) : 0;
   const completionTokens = estimateTokens(responseContent);
 
   if (stream) {
@@ -73,6 +72,21 @@ app.post("/v1/chat/completions", (req, res) => {
       choices: [{ index: 0, delta: {}, logprobs: null, finish_reason: "stop" }],
     };
     res.write(`data: ${JSON.stringify(stopChunk)}\n\n`);
+
+    // Usage chunk (only when stream_options.include_usage is requested)
+    if (includeUsage) {
+      const usageChunk = {
+        ...base,
+        choices: [],
+        usage: {
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          total_tokens: promptTokens + completionTokens,
+        },
+      };
+      res.write(`data: ${JSON.stringify(usageChunk)}\n\n`);
+    }
+
     res.write("data: [DONE]\n\n");
     return res.end();
   }
@@ -139,5 +153,3 @@ app.listen(PORT, "127.0.0.1", () => {
   console.log("  Port 1289 = mock (dev/test) | Port 1288 = real Copilot Connect (production)");
   console.log("Endpoints: GET /health  GET /v1/models  POST /v1/chat/completions  POST /v1/completions");
 });
-
-

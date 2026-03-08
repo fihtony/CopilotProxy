@@ -96,6 +96,14 @@ export function KeyDetail() {
               <span>
                 <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span> {formatDateTime(data?.item.last_used_at)}
               </span>
+              {data?.item.created_by_name && (
+                <span>
+                  <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created by:</span> {data.item.created_by_name}
+                  {data.item.created_by_email && (
+                    <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}> ({data.item.created_by_email})</span>
+                  )}
+                </span>
+              )}
             </p>
           </div>
         </div>

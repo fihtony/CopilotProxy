@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   model TEXT NOT NULL,
   is_active INTEGER NOT NULL DEFAULT 1,
   is_deleted INTEGER NOT NULL DEFAULT 0,
+  created_by_name TEXT NOT NULL DEFAULT 'Unknown',
+  created_by_email TEXT NOT NULL DEFAULT '',
   -- Stored as ISO 8601 with UTC offset, e.g. "2024-01-01T12:00:00.000Z".
   -- Provided by the application (not CURRENT_TIMESTAMP) to include timezone info.
   created_at TEXT NOT NULL,

@@ -6,7 +6,7 @@ import axios from "axios";
 function getApiBaseUrl(): string {
   const proxyPort = import.meta.env.VITE_PROXY_PORT || "3000";
   const host = window.location.hostname;
-  return `http://${host}:${proxyPort}/api`;
+  return `http://${host}:${proxyPort}/admin/api`;
 }
 
 export const apiClient = axios.create({
@@ -25,6 +25,8 @@ export interface ApiKeyItem {
   model: string;
   is_active: number;
   is_deleted: number;
+  created_by_name: string;
+  created_by_email: string;
   created_at: string;
   updated_at: string;
   last_used_at?: string | null;

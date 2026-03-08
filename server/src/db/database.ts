@@ -40,6 +40,12 @@ if (!columnExists("requests", "ip_address")) {
 if (!columnExists("requests", "host")) {
   db.exec("ALTER TABLE requests ADD COLUMN host TEXT");
 }
+if (!columnExists("api_keys", "created_by_name")) {
+  db.exec("ALTER TABLE api_keys ADD COLUMN created_by_name TEXT NOT NULL DEFAULT 'Unknown'");
+}
+if (!columnExists("api_keys", "created_by_email")) {
+  db.exec("ALTER TABLE api_keys ADD COLUMN created_by_email TEXT NOT NULL DEFAULT ''");
+}
 
 // Seed default settings rows if not present
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
@@ -75,14 +81,23 @@ export function previewApiKey(apiKey: string) {
   return `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`;
 }
 
-export function createApiKeyRecord(input: { rawKey: string; name: string; model: string }) {
+export function createApiKeyRecord(input: { rawKey: string; name: string; model: string; createdByName: string; createdByEmail: string }) {
   const ts = new Date().toISOString();
   const statement = db.prepare(`
-    INSERT INTO api_keys (key_hash, key_preview, name, model, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO api_keys (key_hash, key_preview, name, model, created_by_name, created_by_email, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const result = statement.run(hashApiKey(input.rawKey), previewApiKey(input.rawKey), input.name, input.model, ts, ts);
+  const result = statement.run(
+    hashApiKey(input.rawKey),
+    previewApiKey(input.rawKey),
+    input.name,
+    input.model,
+    input.createdByName,
+    input.createdByEmail,
+    ts,
+    ts,
+  );
   return getApiKeyById(Number(result.lastInsertRowid));
 }
 

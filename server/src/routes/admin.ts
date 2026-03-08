@@ -52,6 +52,8 @@ router.post("/keys", (req, res) => {
     rawKey,
     name: parsed.data.name,
     model: parsed.data.model ?? defaultModel,
+    createdByName: req.adminUser?.name ?? "Unknown",
+    createdByEmail: req.adminUser?.email ?? "",
   });
 
   res.status(201).json({ item: record, rawKey });
