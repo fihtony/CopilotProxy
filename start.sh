@@ -65,7 +65,7 @@ echo "▶ Building server..."
 npm run build -w server --silent
 
 echo "▶ Building UI..."
-VITE_ADMIN_PORT="$ADMIN_PORT" VITE_CLIENT_PORT="$CLIENT_PORT" npm run build -w ui --silent
+npm run build -w ui --silent
 
 echo ""
 
@@ -91,9 +91,15 @@ echo "  Client API → http://localhost:${CLIENT_PORT}"
 (cd server && NODE_ENV="$NODE_ENV" COPILOT_URL="$COPILOT_URL" ADMIN_PORT="$ADMIN_PORT" CLIENT_PORT="$CLIENT_PORT" DATABASE_PATH="$DATABASE_PATH" node dist/index.js > ../logs/server.log 2>&1) &
 echo $! >> "$PIDS_FILE"
 
-# ── start Admin UI (preview) ─────────────────────────────────────────────────
-echo "▶ Starting Admin UI on http://localhost:${UI_PORT}..."
-(cd ui && VITE_ADMIN_PORT="$ADMIN_PORT" VITE_CLIENT_PORT="$CLIENT_PORT" npx vite preview --port "$UI_PORT" --host 127.0.0.1 > ../logs/ui.log 2>&1) &
+# ── start UI (Vite dev or preview; proxies /api/admin to 8020 only) ─────────
+if [[ "$MODE" == "production" ]]; then
+  echo "▶ Starting Admin UI on http://localhost:${UI_PORT}..."
+  echo "  Tunnel: expose 3020 (UI + /api/admin proxy) and 8022 (/api/v1); 8020 is internal only."
+  (cd ui && ADMIN_PORT="$ADMIN_PORT" npx vite preview --port "$UI_PORT" --host 127.0.0.1 > ../logs/ui.log 2>&1) &
+else
+  echo "▶ Starting Admin UI on http://localhost:${UI_PORT}..."
+  (cd ui && ADMIN_PORT="$ADMIN_PORT" npx vite --port "$UI_PORT" > ../logs/ui.log 2>&1) &
+fi
 echo $! >> "$PIDS_FILE"
 
 echo ""

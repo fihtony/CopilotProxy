@@ -1,20 +1,11 @@
 import axios from "axios";
 
-// Determine API base URL for admin endpoints (port 8020)
-// VITE_ADMIN_PORT can be set at build time; defaults to 8020
-function getAdminApiBaseUrl(): string {
-  const adminPort = import.meta.env.VITE_ADMIN_PORT || "8020";
-  const host = window.location.hostname;
-  return `http://${host}:${adminPort}/api/admin`;
-}
+// Frontend uses same-origin /api/admin; Vite (3020) proxies it to the admin backend (8020).
+// Client API (/api/v1) is exposed on 8022 by the tunnel; the dashboard does not call it.
+const ADMIN_BASE = "/api/admin";
 
 export const apiClient = axios.create({
-  baseURL: getAdminApiBaseUrl(),
-});
-
-// Client API base URL (port 8022 — OpenAI-compatible proxy)
-export const proxyClient = axios.create({
-  baseURL: `http://${window.location.hostname}:${import.meta.env.VITE_CLIENT_PORT || "8022"}/api/v1`,
+  baseURL: ADMIN_BASE,
 });
 
 export interface ApiKeyItem {
