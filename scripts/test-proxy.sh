@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-PROXY_URL="${PROXY_URL:-http://127.0.0.1:3000}"
+PROXY_URL="${PROXY_URL:-http://127.0.0.1:8022}"
 MODEL="${3:-gpt-5-mini}"
 API_KEY="${1:-}"
 CHAT_MESSAGE="${2:-}"
@@ -54,7 +54,7 @@ echo ""
 echo "📋 [Test 1/2] Fetching available models..."
 echo ""
 
-MODELS_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "$PROXY_URL/v1/models" \
+MODELS_RESPONSE=$(curl -s -w "\n%{http_code}" -X GET "$PROXY_URL/api/v1/models" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json")
 
@@ -90,7 +90,7 @@ echo "Request:"
 echo "$REQUEST_BODY" | jq . 2>/dev/null || echo "$REQUEST_BODY"
 echo ""
 
-CHAT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PROXY_URL/v1/chat/completions" \
+CHAT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$PROXY_URL/api/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "$REQUEST_BODY")

@@ -18,9 +18,10 @@ source .env 2>/dev/null || true
 set +a
 
 # Set defaults if not defined
-COPILOT_URL=${COPILOT_URL:-"http://127.0.0.1:1289"}
-PROXY_PORT=${PROXY_PORT:-3000}
-UI_PORT=${UI_PORT:-3001}
+COPILOT_URL=${COPILOT_URL:-"http://127.0.0.1:1288"}
+ADMIN_PORT=${ADMIN_PORT:-8020}
+CLIENT_PORT=${CLIENT_PORT:-8022}
+UI_PORT=${UI_PORT:-3020}
 DATABASE_PATH=${DATABASE_PATH:-"./data"}
 
 # Set NODE_ENV based on mode
@@ -37,7 +38,7 @@ fi
 mkdir -p logs
 
 MODE_LABEL=$([[ "$MODE" == "dev" ]] && echo "DEVELOPMENT (no auth required)" || echo "PRODUCTION (auth required)")
-AUTH_LABEL=$([[ "$MODE" == "dev" ]] && echo "❌ DISABLED (X-Admin-Key not required)" || echo "✓ ENABLED (CF-Access-JWT-Assertion required)")
+AUTH_LABEL=$([[ "$MODE" == "dev" ]] && echo "DISABLED (CF-Access-JWT-Assertion not required)" || echo "ENABLED (CF-Access-JWT-Assertion required)")
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║         Copilot Proxy — Starting in $MODE_LABEL           "
@@ -46,23 +47,16 @@ echo ""
 echo "Configuration:"
 echo "  Mode:              $MODE_LABEL"
 echo "  Cloudflare Auth:   $AUTH_LABEL"
+echo "  Copilot Connect:   $COPILOT_URL"
 echo ""
 echo "API Endpoints:"
-if [[ "$MODE" == "dev" ]]; then
-  echo "  /v1/*           — Client API (requires API key via Authorization header)"
-  echo "  /admin/api/*    — Admin API (no auth, fully open for development)"
-else
-  echo "  /v1/*           — Client API (requires API key via Authorization header)"
-  echo "  /admin/api/*    — Admin API (requires Cloudflare Access JWT token)"
-fi
+echo "  /api/admin/*  — Admin API on port $ADMIN_PORT (for dashboard UI)"
+echo "  /api/v1/*     — Client API on port $CLIENT_PORT (OpenAI-compatible, requires API key)"
 echo ""
 
 # ── install dependencies ─────────────────────────────────────────────────────
 echo "▶ Installing root workspace dependencies..."
 npm install --silent
-
-echo "▶ Installing Mock Copilot Connect dependencies..."
-(cd mockCopilot && npm install --silent)
 
 echo ""
 
@@ -71,50 +65,56 @@ echo "▶ Building server..."
 npm run build -w server --silent
 
 echo "▶ Building UI..."
-VITE_PROXY_PORT="$PROXY_PORT" npm run build -w ui --silent
+VITE_ADMIN_PORT="$ADMIN_PORT" VITE_CLIENT_PORT="$CLIENT_PORT" npm run build -w ui --silent
 
 echo ""
 
-# ── start Mock Copilot Connect ───────────────────────────────────────────────
-echo "▶ Starting Mock Copilot Connect on http://localhost:1289..."
-(cd mockCopilot && PORT=1289 node server.js > ../logs/mock-copilot.log 2>&1) &
-echo $! >> "$PIDS_FILE"
+# ── switch CopilotConnect to echo mode (if running and mode is dev) ─────────
+if [[ "$MODE" == "dev" ]]; then
+  echo "▶ Checking CopilotConnect at ${COPILOT_URL}..."
+  if curl -sf "${COPILOT_URL}/health" > /dev/null 2>&1; then
+    echo "▶ CopilotConnect is running — switching to echo mode..."
+    curl -sf -X POST "${COPILOT_URL}/v1/mode" \
+      -H "Content-Type: application/json" \
+      -d '{"mode":"echo"}' > /dev/null 2>&1 && echo "  Echo mode enabled." || echo "  Warning: could not switch to echo mode."
+  else
+    echo "  Warning: CopilotConnect not reachable at ${COPILOT_URL}."
+    echo "  Proxy will still start but upstream calls will fail until CopilotConnect is running."
+  fi
+  echo ""
+fi
 
-# give it a moment to bind the port
-sleep 1
-
-# ── start Copilot Proxy server ───────────────────────────────────────────────
-# Uses COPILOT_URL, PROXY_PORT, DATABASE_PATH, and NODE_ENV
-echo "▶ Starting Copilot Proxy server on http://localhost:${PROXY_PORT}..."
-(cd server && NODE_ENV="$NODE_ENV" COPILOT_URL="$COPILOT_URL" PROXY_PORT="$PROXY_PORT" DATABASE_PATH="$DATABASE_PATH" node dist/index.js > ../logs/server.log 2>&1) &
+# ── start Copilot Proxy servers ──────────────────────────────────────────────
+echo "▶ Starting Copilot Proxy servers..."
+echo "  Admin API  → http://localhost:${ADMIN_PORT}"
+echo "  Client API → http://localhost:${CLIENT_PORT}"
+(cd server && NODE_ENV="$NODE_ENV" COPILOT_URL="$COPILOT_URL" ADMIN_PORT="$ADMIN_PORT" CLIENT_PORT="$CLIENT_PORT" DATABASE_PATH="$DATABASE_PATH" node dist/index.js > ../logs/server.log 2>&1) &
 echo $! >> "$PIDS_FILE"
 
 # ── start Admin UI (preview) ─────────────────────────────────────────────────
 echo "▶ Starting Admin UI on http://localhost:${UI_PORT}..."
-(cd ui && VITE_PROXY_PORT="$PROXY_PORT" npx vite preview --port "$UI_PORT" --host 127.0.0.1 > ../logs/ui.log 2>&1) &
+(cd ui && VITE_ADMIN_PORT="$ADMIN_PORT" VITE_CLIENT_PORT="$CLIENT_PORT" npx vite preview --port "$UI_PORT" --host 127.0.0.1 > ../logs/ui.log 2>&1) &
 echo $! >> "$PIDS_FILE"
 
 echo ""
 echo "╔═══════════════════════════════════════════════════════════════╗"
 echo "║  All services are running ($MODE mode)                       ║"
 echo "║                                                               ║"
-echo "║   Mock Copilot Connect  →  http://localhost:1289              ║"
-echo "║   Copilot Proxy API     →  http://localhost:${PROXY_PORT}     ║"
-echo "║   Admin UI              →  http://localhost:${UI_PORT}     ║"
+echo "║   Copilot Connect       →  ${COPILOT_URL}          "
+echo "║   Admin API             →  http://localhost:${ADMIN_PORT}    ║"
+echo "║   Client API (proxy)    →  http://localhost:${CLIENT_PORT}   ║"
+echo "║   Admin UI              →  http://localhost:${UI_PORT}       ║"
 echo "║                                                               ║"
 if [[ "$MODE" == "dev" ]]; then
-  echo "║  🔓 DEV MODE: Admin API (/admin/api/*) is OPEN                 ║"
-  echo "║     - No authentication required                             ║"
-  echo "║     - X-Admin-Key header is optional                         ║"
-  echo "║     - /v1/* endpoints still require API key authentication   ║"
+  echo "║  DEV MODE: Admin API (/api/admin/*) is OPEN (no auth required)     ║"
+  echo "║     - /api/v1/* endpoints still require API key authentication   ║"
 else
-  echo "║  🔒 PROD MODE: Admin API (/admin/api/*) requires auth        ║"
-  echo "║     - Cloudflare Access JWT token required                  ║"
-  echo "║     - /v1/* endpoints require API key authentication         ║"
+  echo "║  PROD MODE: Admin API (/api/admin/*) requires Cloudflare Access    ║"
+  echo "║     - CF-Access-JWT-Assertion header required                ║"
+  echo "║     - /api/v1/* endpoints require API key authentication         ║"
 fi
 echo "║                                                               ║"
-echo "║  Logs:  ./logs/mock-copilot.log                               ║"
-echo "║         ./logs/server.log          (NODE_ENV=$NODE_ENV)       ║"
+echo "║  Logs:  ./logs/server.log          (NODE_ENV=$NODE_ENV)       ║"
 echo "║         ./logs/ui.log                                         ║"
 echo "║                                                               ║"
 echo "║  Run ./stop.sh to stop all services.                          ║"

@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-const PROXY_URL = "http://127.0.0.1:3000";
+const ADMIN_URL = "http://127.0.0.1:8020"; // Admin API
+const CLIENT_URL = "http://127.0.0.1:8022"; // OpenAI-compatible proxy API
 
 // TC-KEY-01 to TC-KEY-06: API key management lifecycle (modal-based UI)
 
 test("TC-KEY-01/03/05: creates, edits, and soft-deletes an API key via modals", async ({ page }) => {
-  await expect.poll(async () => (await page.request.get(`${PROXY_URL}/health`)).status()).toBe(200);
+  await expect.poll(async () => (await page.request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
   await page.goto("/keys");
 
@@ -36,6 +37,9 @@ test("TC-KEY-01/03/05: creates, edits, and soft-deletes an API key via modals", 
   await editedRow.getByTestId("delete-key").click();
   await page.getByTestId("confirm-delete").click();
 
+  // Soft-deleted keys are hidden by default; reveal them first
+  await page.getByTitle("Show deleted keys").click();
+
   // Row should still be visible but marked as deleted (no edit/delete buttons)
   const deletedRow = page.getByTestId("key-row").filter({ hasText: editedName }).first();
   await expect(deletedRow).toBeVisible();
@@ -43,10 +47,10 @@ test("TC-KEY-01/03/05: creates, edits, and soft-deletes an API key via modals", 
 });
 
 test("TC-KEY-01: DB fields are set correctly after key creation", async ({ page, request }) => {
-  await expect.poll(async () => (await request.get(`${PROXY_URL}/health`)).status()).toBe(200);
+  await expect.poll(async () => (await request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
   const name = `DB Check ${Date.now()}`;
-  const create = await request.post(`${PROXY_URL}/api/keys`, {
+  const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
     data: { name, model: "gpt-4o-mini" },
   });
   expect(create.status()).toBe(201);
@@ -60,27 +64,27 @@ test("TC-KEY-01: DB fields are set correctly after key creation", async ({ page,
   expect(rawKey).toMatch(/^cps_[a-f0-9]{32}$/);
 
   // Cleanup
-  await request.delete(`${PROXY_URL}/api/keys/${item.id}`);
+  await request.delete(`${ADMIN_URL}/api/admin/keys/${item.id}`);
 });
 
 test("TC-KEY-02: default model fallback from settings", async ({ request }) => {
   // POST without model field — should default to settings default_model
-  const create = await request.post(`${PROXY_URL}/api/keys`, {
+  const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
     data: { name: `Default Model ${Date.now()}` },
   });
   expect(create.status()).toBe(201);
   const { item } = await create.json();
 
   // Read default from settings
-  const settings = await request.get(`${PROXY_URL}/api/settings`);
+  const settings = await request.get(`${ADMIN_URL}/api/admin/settings`);
   const { default_model } = await settings.json();
   expect(item.model).toBe(default_model);
 
-  await request.delete(`${PROXY_URL}/api/keys/${item.id}`);
+  await request.delete(`${ADMIN_URL}/api/admin/keys/${item.id}`);
 });
 
 test("TC-KEY-05: generated raw key shown only once — not visible after closing modal", async ({ page }) => {
-  await expect.poll(async () => (await page.request.get(`${PROXY_URL}/health`)).status()).toBe(200);
+  await expect.poll(async () => (await page.request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
   await page.goto("/keys");
   const uniqueName = `Once ${Date.now()}`;
@@ -98,42 +102,41 @@ test("TC-KEY-05: generated raw key shown only once — not visible after closing
 });
 
 test("TC-KEY-06: soft-deleted key is rejected by proxy but data remains", async ({ request }) => {
-  const create = await request.post(`${PROXY_URL}/api/keys`, {
+  const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
     data: { name: `SoftDel ${Date.now()}`, model: "gpt-5-mini" },
   });
   const { item, rawKey } = await create.json();
 
   // Use the key first
-  await request.post(`${PROXY_URL}/v1/chat/completions`, {
+  await request.post(`${CLIENT_URL}/api/v1/chat/completions`, {
     headers: { Authorization: `Bearer ${rawKey}` },
     data: { messages: [{ role: "user", content: "before delete" }] },
   });
 
   // Soft delete
-  const del = await request.delete(`${PROXY_URL}/api/keys/${item.id}`);
+  const del = await request.delete(`${ADMIN_URL}/api/admin/keys/${item.id}`);
   expect(del.status()).toBe(200);
   const delBody = await del.json();
   expect(delBody.ok).toBe(true);
 
   // Proxy rejects the deleted key
-  const proxyRes = await request.post(`${PROXY_URL}/v1/chat/completions`, {
+  const proxyRes = await request.post(`${CLIENT_URL}/api/v1/chat/completions`, {
     headers: { Authorization: `Bearer ${rawKey}` },
     data: { messages: [{ role: "user", content: "after delete" }] },
   });
   expect(proxyRes.status()).toBe(401);
 
   // But stats are still accessible
-  const stats = await request.get(`${PROXY_URL}/api/keys/${item.id}/stats`);
+  const stats = await request.get(`${ADMIN_URL}/api/admin/keys/${item.id}/stats`);
   expect(stats.status()).toBe(200);
   const statsBody = await stats.json();
   expect(statsBody.stats.totalCalls).toBeGreaterThan(0);
 });
 
 test("TC-KEY-06: creating a key with empty name shows validation error", async ({ page, request }) => {
-  await expect.poll(async () => (await request.get(`${PROXY_URL}/health`)).status()).toBe(200);
+  await expect.poll(async () => (await request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
   // API-level validation
-  const bad = await request.post(`${PROXY_URL}/api/keys`, { data: { name: "" } });
+  const bad = await request.post(`${ADMIN_URL}/api/admin/keys`, { data: { name: "" } });
   expect(bad.status()).toBe(400);
 });
-

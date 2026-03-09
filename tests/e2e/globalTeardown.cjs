@@ -1,4 +1,4 @@
-// Jest globalTeardown: switches CopilotConnect back to bridge mode after tests complete.
+// Playwright globalTeardown: switches CopilotConnect back to bridge mode after e2e tests complete.
 const http = require("http");
 
 const COPILOT_URL = process.env.COPILOT_URL || "http://127.0.0.1:1288";

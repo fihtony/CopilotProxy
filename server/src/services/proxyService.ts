@@ -1,7 +1,7 @@
 import axios from "axios";
 import type { Readable } from "stream";
 
-// Always forwards to the provided baseURL (real Copilot Connect :1288 or mock :1289).
+// Forwards to the provided baseURL (real Copilot Connect :1288 in bridge or echo mode).
 // The proxy itself has no knowledge of whether the upstream is real or mocked.
 export async function proxyRequest(baseURL: string, path: string, body: Record<string, unknown> | undefined, modelOverride: string) {
   const payload = body ? { ...body, model: modelOverride } : undefined;

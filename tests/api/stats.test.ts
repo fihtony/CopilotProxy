@@ -1,18 +1,14 @@
 /**
  * Statistics Routes Tests
  *
- * Tests the /admin/api/keys/:id/stats and /admin/api/overview endpoints.
+ * Tests the /api/keys/:id/stats and /api/overview endpoints on the admin app.
  * These are protected by cloudflareAuthMiddleware (LOCAL_ADMIN_USER in dev).
  *
  * Upstream Copilot Connect server URL:
- *   - process.env.COPILOT_URL (set in setupEnv.cjs)
- *   - Falls back to http://127.0.0.1:1289 (mock) if not set
+ *   - process.env.COPILOT_URL (set in setupEnv.cjs, defaults to http://127.0.0.1:1288)
  *
- * To test against real Copilot Connect:
- *   COPILOT_URL=http://127.0.0.1:1288 npm run test:api
- *
- * To test against mock (default):
- *   npm run test:api
+ * Tests run against CopilotConnect in echo mode (no real Copilot requests consumed).
+ * Ensure CopilotConnect is running before executing tests.
  */
 
 import request from "supertest";
@@ -24,14 +20,14 @@ describe("stats routes", () => {
   let keyId = 0;
 
   beforeAll(async () => {
-    const createResponse = await request(app).post("/admin/api/keys").send({ name: "Stats Key", model: "gpt-5-mini" }).expect(201);
+    const createResponse = await request(app).post("/api/admin/keys").send({ name: "Stats Key", model: "gpt-5-mini" }).expect(201);
     rawKey = createResponse.body.rawKey;
     keyId = createResponse.body.item.id;
 
     // Fire several requests to produce stats
     for (let i = 0; i < 3; i++) {
       await request(app)
-        .post("/v1/chat/completions")
+        .post("/api/v1/chat/completions")
         .set("Authorization", `Bearer ${rawKey}`)
         .send({ model: "ignored", messages: [{ role: "user", content: `msg-${i}` }] })
         .expect(200);
@@ -40,7 +36,7 @@ describe("stats routes", () => {
 
   // ── Overview ──────────────────────────────────────────────────────────
   it("returns overview with summary, p-values and timeline", async () => {
-    const overview = await request(app).get("/admin/api/overview?window=24h").expect(200);
+    const overview = await request(app).get("/api/admin/overview?window=24h").expect(200);
 
     // Summary fields
     const s = overview.body.summary;
@@ -63,13 +59,13 @@ describe("stats routes", () => {
   });
 
   it("supports 90d window", async () => {
-    const res = await request(app).get("/admin/api/overview?window=90d").expect(200);
+    const res = await request(app).get("/api/admin/overview?window=90d").expect(200);
     expect(res.body.summary.totalCalls).toBeGreaterThan(0);
   });
 
   // ── Key stats ─────────────────────────────────────────────────────────
   it("returns key stats with p-values and errors list", async () => {
-    const res = await request(app).get(`/admin/api/keys/${keyId}/stats?window=24h`).expect(200);
+    const res = await request(app).get(`/api/admin/keys/${keyId}/stats?window=24h`).expect(200);
 
     expect(res.body.stats.totalCalls).toBeGreaterThan(0);
     expect(typeof res.body.stats.avgProxyTime).toBe("number");
@@ -83,29 +79,29 @@ describe("stats routes", () => {
 
   it("returns all-time stats for soft-deleted key", async () => {
     // Create + use + delete a key
-    const created = await request(app).post("/admin/api/keys").send({ name: "Deleted Stats", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app).post("/api/admin/keys").send({ name: "Deleted Stats", model: "gpt-5-mini" }).expect(201);
     await request(app)
-      .post("/v1/chat/completions")
+      .post("/api/v1/chat/completions")
       .set("Authorization", `Bearer ${created.body.rawKey}`)
       .send({ model: "m", messages: [{ role: "user", content: "x" }] })
       .expect(200);
-    await request(app).delete(`/admin/api/keys/${created.body.item.id}`).expect(200);
+    await request(app).delete(`/api/admin/keys/${created.body.item.id}`).expect(200);
 
     // Stats should still return (all-time window)
-    const res = await request(app).get(`/admin/api/keys/${created.body.item.id}/stats`).expect(200);
+    const res = await request(app).get(`/api/admin/keys/${created.body.item.id}/stats`).expect(200);
     expect(res.body.stats.totalCalls).toBeGreaterThan(0);
   }, 30000);
 
   // ── History ───────────────────────────────────────────────────────────
   it("paginates request history", async () => {
-    const history = await request(app).get(`/admin/api/keys/${keyId}/history?page=1&limit=2`).expect(200);
+    const history = await request(app).get(`/api/admin/keys/${keyId}/history?page=1&limit=2`).expect(200);
     expect(history.body.total).toBeGreaterThan(0);
     expect(history.body.items.length).toBeLessThanOrEqual(2);
   });
 
   // ── proxy_time_ms recorded ────────────────────────────────────────────
   it("records proxy_time_ms >= 0", async () => {
-    const history = await request(app).get(`/admin/api/keys/${keyId}/history?page=1&limit=1`).expect(200);
+    const history = await request(app).get(`/api/admin/keys/${keyId}/history?page=1&limit=1`).expect(200);
     expect(history.body.items[0].proxy_time_ms).toBeGreaterThanOrEqual(0);
   });
 });

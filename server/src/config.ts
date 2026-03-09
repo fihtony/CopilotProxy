@@ -20,9 +20,11 @@ function resolveDatabasePath(dbPath?: string): string {
 }
 
 export const config = {
-  port: Number(process.env.PROXY_PORT ?? 3000),
-  uiPort: Number(process.env.UI_PORT ?? 3001),
-  // Default points to real Copilot Connect; set to :1289 to use Mock Copilot Connect.
+  // Port 8020: Admin API (for the dashboard UI)
+  adminPort: Number(process.env.ADMIN_PORT ?? 8020),
+  // Port 8022: Client API (OpenAI-compatible proxy, requires API key)
+  clientPort: Number(process.env.CLIENT_PORT ?? 8022),
+  // Default points to real CopilotConnect (echo mode for dev/tests, bridge mode for production)
   copilotUrl: process.env.COPILOT_URL ?? "http://127.0.0.1:1288",
   databasePath: resolveDatabasePath(process.env.DATABASE_PATH),
   uiDistPath: path.join(rootDir, "ui", "dist"),

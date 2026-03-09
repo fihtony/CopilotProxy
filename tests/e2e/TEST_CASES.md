@@ -1,7 +1,7 @@
 # Copilot Proxy — E2E Test Cases
 
-> **Stack**: Playwright against `http://127.0.0.1:3001` (UI) and `http://127.0.0.1:3000` (API proxy).  
-> **Upstream**: Mock Copilot Connect on `:1289` (started by `start.sh`).  
+> **Stack**: Playwright against `http://127.0.0.1:3020` (UI), `http://127.0.0.1:8020` (Admin API), and `http://127.0.0.1:8022` (Client API).  
+> **Upstream**: CopilotConnect on `:1288` in echo mode (no real Copilot tokens consumed).  
 > All test files live in `tests/e2e/`.
 
 ---

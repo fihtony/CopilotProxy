@@ -39,6 +39,7 @@ function parseUsageFromTail(tail: string): { prompt_tokens: number; completion_t
 /** Handle requests with stream:true — pipes upstream SSE directly to the client. */
 async function handleStreamingProxy(req: Request, res: Response, path: string) {
   const startedAt = Date.now();
+  const logPath = req.originalUrl.split("?")[0]; // client-facing path for DB logging
   const requestedModel = typeof req.body?.model === "string" ? req.body.model : null;
   const modelUsed = req.apiKey?.model ?? "gpt-5-mini";
   const copilotUrl = getCachedSettings().copilot_url;
@@ -52,7 +53,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
-      path,
+      path: logPath,
       statusCode: 502,
       success: 0,
       responseTimeMs: totalElapsed,
@@ -78,7 +79,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
       recordRequest({
         apiKeyId: req.apiKey!.id,
         method: req.method,
-        path,
+        path: logPath,
         statusCode: upstream.status,
         success: 0,
         responseTimeMs: totalElapsed,
@@ -124,7 +125,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
-      path,
+      path: logPath,
       statusCode: 200,
       success: 1,
       responseTimeMs: totalElapsed,
@@ -146,7 +147,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
-      path,
+      path: logPath,
       statusCode: 502,
       success: 0,
       responseTimeMs: totalElapsed,
@@ -173,6 +174,7 @@ async function handleProxy(req: Request, res: Response, path: string) {
   }
 
   const startedAt = Date.now();
+  const logPath = req.originalUrl.split("?")[0]; // client-facing path for DB logging
   const requestedModel = typeof req.body?.model === "string" ? req.body.model : null;
   const modelUsed = req.apiKey?.model ?? "gpt-5-mini";
   const copilotUrl = getCachedSettings().copilot_url;
@@ -193,7 +195,7 @@ async function handleProxy(req: Request, res: Response, path: string) {
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
-      path,
+      path: logPath,
       statusCode: upstream.status,
       success: upstream.status >= 200 && upstream.status < 400 ? 1 : 0,
       responseTimeMs: totalElapsed,
@@ -214,7 +216,7 @@ async function handleProxy(req: Request, res: Response, path: string) {
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
-      path,
+      path: logPath,
       statusCode: 502,
       success: 0,
       responseTimeMs: totalElapsed,

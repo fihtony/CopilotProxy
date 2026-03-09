@@ -1,20 +1,20 @@
 import axios from "axios";
 
-// Determine API base URL
-// If VITE_PROXY_PORT is set (injected by build), use it
-// Otherwise default to port 3000 on same host
-function getApiBaseUrl(): string {
-  const proxyPort = import.meta.env.VITE_PROXY_PORT || "3000";
+// Determine API base URL for admin endpoints (port 8020)
+// VITE_ADMIN_PORT can be set at build time; defaults to 8020
+function getAdminApiBaseUrl(): string {
+  const adminPort = import.meta.env.VITE_ADMIN_PORT || "8020";
   const host = window.location.hostname;
-  return `http://${host}:${proxyPort}/admin/api`;
+  return `http://${host}:${adminPort}/api/admin`;
 }
 
 export const apiClient = axios.create({
-  baseURL: getApiBaseUrl(),
+  baseURL: getAdminApiBaseUrl(),
 });
 
+// Client API base URL (port 8022 — OpenAI-compatible proxy)
 export const proxyClient = axios.create({
-  baseURL: `http://${window.location.hostname}:${import.meta.env.VITE_PROXY_PORT || "3000"}/v1`,
+  baseURL: `http://${window.location.hostname}:${import.meta.env.VITE_CLIENT_PORT || "8022"}/api/v1`,
 });
 
 export interface ApiKeyItem {

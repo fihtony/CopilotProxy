@@ -1,4 +1,4 @@
-// Jest globalSetup: switches CopilotConnect to echo mode before API integration tests run.
+// Playwright globalSetup: switches CopilotConnect to echo mode before e2e tests run.
 // Echo mode returns [Echo] <user message> responses without consuming real Copilot tokens.
 // Requires CopilotConnect to be running on the configured port (default: 1288).
 const http = require("http");

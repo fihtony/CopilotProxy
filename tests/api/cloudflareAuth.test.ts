@@ -1,7 +1,7 @@
 /**
  * Cloudflare Authentication & Admin Middleware Tests
  *
- * Tests the JWT extraction logic and middleware behavior:
+ * Tests the JWT extraction logic and middleware behavior for the admin app /api/* routes.
  * - extractUserFromJwt(): Unit tests for JWT payload decoding
  * - cloudflareAuthMiddleware: Integration tests for Cloudflare Access integration
  *
@@ -86,10 +86,7 @@ describe("cloudflareAuthMiddleware — predefined local user", () => {
 
   it("attaches test user via LOCAL_ADMIN_USER override when creating an API key", async () => {
     // In development/test (NODE_ENV !== production), middleware uses LOCAL_ADMIN_USER.
-    const res = await request(app)
-      .post("/admin/api/keys")
-      .send({ name: "CF Auth Test Key", model: "gpt-5-mini" })
-      .expect(201);
+    const res = await request(app).post("/api/admin/keys").send({ name: "CF Auth Test Key", model: "gpt-5-mini" }).expect(201);
 
     expect(res.body.item.created_by_name).toBe("Test User");
     expect(res.body.item.created_by_email).toBe("test@localhost.com");

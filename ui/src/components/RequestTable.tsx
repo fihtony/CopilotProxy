@@ -1,6 +1,6 @@
 import { formatDateTime } from "../utils/dateFormatter";
 
-interface RequestItem {
+export interface RequestItem {
   id: number;
   timestamp: string;
   path: string;

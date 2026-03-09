@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { apiClient, type KeyStatsResponse } from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
+import { RequestTable, type RequestItem } from "../components/RequestTable";
 import { formatDateTime } from "../utils/dateFormatter";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
@@ -13,6 +14,7 @@ export function KeyDetail() {
   const [timeWindow, setTimeWindow] = useState<(typeof windows)[number]>("24h");
   const [data, setData] = useState<KeyStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [history, setHistory] = useState<RequestItem[]>([]);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -30,6 +32,13 @@ export function KeyDetail() {
       setIsLoading(false);
     });
   }, [id, timeWindow]);
+
+  useEffect(() => {
+    if (!id) return;
+    apiClient.get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`).then((r) => {
+      setHistory(r.data.items);
+    });
+  }, [id]);
 
   const handleBack = () => {
     // Try to restore scroll position from where we came
@@ -52,7 +61,7 @@ export function KeyDetail() {
         window.scrollTo(0, parseInt(dashboardPos, 10));
       }, 0);
     } else {
-      navigate(-1);
+      navigate("/keys");
     }
   };
 
@@ -225,6 +234,9 @@ export function KeyDetail() {
           </table>
         </div>
       )}
+
+      {/* Request History */}
+      <RequestTable items={history} />
     </div>
   );
 }

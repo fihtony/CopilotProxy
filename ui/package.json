@@ -6,9 +6,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 3001",
+    "dev": "vite --host 127.0.0.1 --port 3020",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 3001"
+    "preview": "vite preview --host 127.0.0.1 --port 3020"
   },
   "dependencies": {
     "axios": "^1.9.0",
