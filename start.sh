@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 
 PIDS_FILE=".running.pids"
 
@@ -13,16 +12,21 @@ if [[ "$MODE" != "dev" && "$MODE" != "production" ]]; then
 fi
 
 # ── load environment variables ─────────────────────────────────────────────
-set -a
-source .env 2>/dev/null || true
-set +a
+# Load .env file if it exists (suppress errors if it doesn't)
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
+set -e
 
 # Set defaults if not defined
 COPILOT_URL=${COPILOT_URL:-"http://127.0.0.1:1288"}
 ADMIN_PORT=${ADMIN_PORT:-8020}
 CLIENT_PORT=${CLIENT_PORT:-8022}
 UI_PORT=${UI_PORT:-3020}
-DATABASE_PATH=${DATABASE_PATH:-"./data"}
+DATABASE_PATH=${DATABASE_PATH:-"./data/copilot-proxy.db"}
 
 # Set NODE_ENV based on mode
 NODE_ENV=$([[ "$MODE" == "dev" ]] && echo "development" || echo "production")
@@ -32,6 +36,13 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [[ "$DATABASE_PATH" != /* ]]; then
   DATABASE_PATH="$SCRIPT_DIR/$DATABASE_PATH"
 fi
+
+# Ensure data directory exists
+DATA_DIR="$(dirname "$DATABASE_PATH")"
+mkdir -p "$DATA_DIR" || {
+  echo "❌ Failed to create data directory: $DATA_DIR"
+  exit 1
+}
 
 # ── clean up from any previous run ──────────────────────────────────────────
 > "$PIDS_FILE"

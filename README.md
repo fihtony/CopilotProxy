@@ -5,13 +5,42 @@ An OpenAI-compatible API gateway that validates API keys, enforces per-key model
 ## Features
 
 - **Per-key model binding** — each API key is locked to a specific model; the `model` field in incoming requests is always ignored
-- **Dashboard** — real-time metrics with 5 cards (total calls, success rate, proxy latency, response time, avg tokens), P90/P95/P99 percentiles, and interactive timecharts
+- **Dashboard** — real-time metrics with 5 cards (total requests, success rate, proxy latency, response time, avg tokens), P90/P95/P99 percentiles, and interactive timecharts
 - **Health indicator** — polls upstream Copilot Connect every 30 seconds
 - **API key management** — create, edit, and soft-delete keys via modal-based UI; search, sort, and filter; see `last_used_at` timestamp for each key
 - **Key-level dashboard** — per-key statistics, timeline charts, recent error logs, and **calls breakdown by client IP address and Host header**
 - **Settings** — configure upstream Copilot URL and default model; test connection to discover available models
 - **Soft delete** — deleted keys retain historical data and statistics; proxy rejects them with 401
 - **Request tracking** — each API request logs the client IP address and Host header for analysis and debugging
+
+## Screenshots
+
+<table>
+<tr>
+  <td><strong>Dashboard</strong> — Overview of real-time metrics, request volume, success rates, and performance percentiles</td>
+</tr>
+<tr>
+  <td><img src="docs/images/dashboard.png" alt="Dashboard"></td>
+</tr>
+<tr>
+  <td><strong>API Key List</strong> — Create, manage, and search API keys; view per-key statistics at a glance</td>
+</tr>
+<tr>
+  <td><img src="docs/images/api_key_list.png" alt="API Key List"></td>
+</tr>
+<tr>
+  <td><strong>API Key Details</strong> — Drill into per-key metrics, timeline charts, error logs, and client breakdown</td>
+</tr>
+<tr>
+  <td><img src="docs/images/api_key_details.png" alt="API Key Details"></td>
+</tr>
+<tr>
+  <td><strong>Settings</strong> — Configure upstream Copilot URL and default model; test connection and discover available models</td>
+</tr>
+<tr>
+  <td><img src="docs/images/settings.png" alt="Settings"></td>
+</tr>
+</table>
 
 ## Requirements
 
@@ -30,11 +59,13 @@ An OpenAI-compatible API gateway that validates API keys, enforces per-key model
 
 This starts three processes:
 
-| Service              | URL                   | Notes         |
-| -------------------- | --------------------- | ------------- |
-| Mock Copilot Connect | http://localhost:1289 | Dev/test only |
-| Copilot Proxy API    | http://localhost:3000 |               |
-| Admin UI             | http://localhost:3001 |               |
+| Service            | URL                   | Notes                               |
+| ------------------ | --------------------- | ----------------------------------- |
+| Admin UI           | http://localhost:3020 | Dashboard and key management        |
+| Admin API          | http://localhost:8020 | Internal used by UI                 |
+| Client API (proxy) | http://localhost:8022 | OpenAI-compatible; requires API key |
+
+**Important Notice:** Production mode requires a Cloudflared Access JWT token. Cloudflare Access enforces authentication for the Admin API — requests must present a valid `CF-Access-JWT-Assertion` token (or run the UI/API behind a properly configured cloudflared tunnel with Access enabled).
 
 ## Manual Setup
 
@@ -42,24 +73,15 @@ This starts three processes:
 
 ```bash
 npm install
-cd mockCopilot && npm install && cd ..
 ```
 
-### 2. Start Mock Copilot Connect
+### 2. Start the proxy server
 
 ```bash
-# Mock runs on port 1289 by default (port 1288 is reserved for real Copilot Connect)
-cd mockCopilot && node server.js
+cd server && npx tsx src/index.ts
 ```
 
-### 3. Start the proxy server
-
-```bash
-# Point to mock Copilot Connect on :1289; swap COPILOT_URL to :1288 for real Copilot Connect
-cd server && MOCK_MODE=false COPILOT_URL=http://127.0.0.1:1289 npx tsx src/index.ts
-```
-
-### 4. Start the admin UI
+### 3. Start the admin UI
 
 ```bash
 cd ui && npx vite
@@ -67,10 +89,10 @@ cd ui && npx vite
 
 ## Creating an API Key
 
-Use the Admin UI at http://localhost:3001, or call the admin API directly:
+Use the Admin UI at http://localhost:3020, or call the admin API directly:
 
 ```bash
-curl -s -X POST http://localhost:3000/api/keys \
+curl -s -X POST http://localhost:8020/api/keys \
   -H "Content-Type: application/json" \
   -d '{"name": "my-app", "model": "gpt-4o"}' | jq .
 ```
@@ -78,12 +100,12 @@ curl -s -X POST http://localhost:3000/api/keys \
 The response contains the raw key (shown only once) and the key record. Use the raw key as a Bearer token:
 
 ```bash
-curl -s http://localhost:3000/v1/models \
+curl -s http://localhost:8022/v1/models \
   -H "Authorization: Bearer cps_<your-key>"
 ```
 
 ```bash
-curl -s -X POST http://localhost:3000/v1/chat/completions \
+curl -s -X POST http://localhost:8022/v1/chat/completions \
   -H "Authorization: Bearer cps_<your-key>" \
   -H "Content-Type: application/json" \
   -d '{"model": "gpt-4o", "messages": [{"role": "user", "content": "Hello"}]}' | jq .
@@ -93,19 +115,11 @@ curl -s -X POST http://localhost:3000/v1/chat/completions \
 
 ## Configuration
 
-Copy and edit the server environment:
+Copy and edit the environment file:
 
 ```bash
-cp server/.env.example server/.env   # if available, or set directly
+cp .env.example .env   # Optional; defaults are applied if missing
 ```
-
-| Variable        | Default                   | Description                                                                                 |
-| --------------- | ------------------------- | ------------------------------------------------------------------------------------------- |
-| `PORT`          | `3000`                    | Proxy server port                                                                           |
-| `COPILOT_URL`   | `http://127.0.0.1:1288`   | Upstream URL (initial value; can be changed in Settings UI). `:1289` = mock, `:1288` = real |
-| `DATABASE_PATH` | `./data/copilot-proxy.db` | SQLite database path                                                                        |
-
-> `COPILOT_URL` seeds the `settings` table on first run. After that, the URL is managed via the Settings page or `PUT /api/settings`.
 
 ## Project Structure
 
@@ -121,10 +135,10 @@ CopilotProxy/
 │   └── src/
 │       ├── pages/   # Dashboard, KeysManage, KeyDetail, Settings
 │       └── components/  # MetricCard, TimelineChart, HealthIndicator, Modal
-├── mockCopilot/     # Standalone mock Copilot Connect server
 ├── tests/
 │   ├── api/         # Jest + supertest integration tests
 │   └── e2e/         # Playwright end-to-end tests
+├── docs/            # Documentation and screenshots
 ├── start.sh
 └── stop.sh
 ```
@@ -148,10 +162,17 @@ Time windows: `24h`, `7d`, `30d`, `90d`
 
 ## Development
 
-Run server and UI in watch mode (uses built-in mocks by default):
+Requires CopilotConnect running upstream. Run server and UI in watch mode:
 
 ```bash
 npm run dev
+```
+
+Alternatively, with more control:
+
+```bash
+npm run dev:server  # Server with hot reload
+npm run dev:ui     # UI with hot reload
 ```
 
 Run tests:
