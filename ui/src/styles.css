@@ -1,9 +1,9 @@
 :root {
   color-scheme: dark;
   font-family: "IBM Plex Sans", sans-serif;
-  --bg: #12131a;
-  --panel: rgba(27, 29, 39, 0.9);
-  --panel-strong: rgba(34, 36, 48, 0.96);
+  --bg: #0a0b0f;
+  --panel: rgba(18, 19, 24, 0.95);
+  --panel-strong: rgba(22, 23, 28, 0.98);
   --text: #f2f1eb;
   --muted: #abafc1;
   --accent: #ff7a18;
@@ -22,9 +22,7 @@ body {
   min-height: 100vh;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, rgba(255, 122, 24, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(46, 112, 255, 0.16), transparent 24%),
-    linear-gradient(160deg, #0a0c11 0%, #151923 48%, #11141c 100%);
+    linear-gradient(165deg, #060709 0%, #0a0b0f 45%, #08090c 100%);
 }
 
 button,
@@ -56,7 +54,7 @@ input {
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: rgba(10, 12, 18, 0.72);
+  background: rgba(12, 13, 17, 0.9);
   color: var(--text);
   padding: 0.85rem 1rem;
 }
@@ -73,7 +71,7 @@ input {
 .sidebar {
   padding: 2rem 1.25rem;
   border-right: 1px solid var(--border);
-  background: rgba(8, 10, 14, 0.72);
+  background: rgba(6, 7, 10, 0.92);
   backdrop-filter: blur(24px);
   position: fixed;
   top: 0;
@@ -571,7 +569,7 @@ button.secondary:hover,
   width: 100%;
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: rgba(10, 12, 18, 0.72);
+  background: rgba(12, 13, 17, 0.9);
   color: var(--text);
   padding: 0.85rem 2.5rem 0.85rem 1rem;
   font: inherit;
@@ -623,7 +621,7 @@ button.secondary:hover,
   flex-shrink: 0;
   padding: 0.8rem;
   border-radius: 14px;
-  background: rgba(10, 12, 18, 0.5);
+  background: rgba(12, 13, 17, 0.6);
 }
 
 .model-list h4 {
