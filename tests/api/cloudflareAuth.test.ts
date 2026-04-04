@@ -31,40 +31,42 @@ describe("extractUserFromJwt", () => {
   it("extracts email and name from a CF Access JWT payload", () => {
     const jwt = makeJwt({ email: "alice@example.com", name: "Alice Smith" });
     const user = extractUserFromJwt(jwt);
-    expect(user.email).toBe("alice@example.com");
-    expect(user.name).toBe("Alice Smith");
+    expect(user).not.toBeNull();
+    expect(user!.email).toBe("alice@example.com");
+    expect(user!.name).toBe("Alice Smith");
   });
 
   it("falls back to email prefix when name is absent", () => {
     const jwt = makeJwt({ email: "bob@example.com" });
     const user = extractUserFromJwt(jwt);
-    expect(user.email).toBe("bob@example.com");
-    expect(user.name).toBe("bob");
+    expect(user).not.toBeNull();
+    expect(user!.email).toBe("bob@example.com");
+    expect(user!.name).toBe("bob");
   });
 
   it("falls back to email prefix when name is empty string", () => {
     const jwt = makeJwt({ email: "carol@example.com", name: "" });
     const user = extractUserFromJwt(jwt);
-    expect(user.name).toBe("carol");
+    expect(user).not.toBeNull();
+    expect(user!.name).toBe("carol");
   });
 
   it("returns Unknown / unknown@localhost for wrong JWT segment count", () => {
     const user = extractUserFromJwt("not.a.valid.jwt.at.all");
-    expect(user.name).toBe("Unknown");
-    expect(user.email).toBe("unknown@localhost");
+    expect(user).toBeNull();
   });
 
   it("returns Unknown / unknown@localhost for a non-JSON payload", () => {
     const user = extractUserFromJwt("header.!!!.sig");
-    expect(user.name).toBe("Unknown");
-    expect(user.email).toBe("unknown@localhost");
+    expect(user).toBeNull();
   });
 
   it("returns unknown@localhost when email field is missing", () => {
     const jwt = makeJwt({ sub: "user-id-123" });
     const user = extractUserFromJwt(jwt);
-    expect(user.email).toBe("unknown@localhost");
-    expect(user.name).toBe("unknown");
+    expect(user).not.toBeNull();
+    expect(user!.email).toBe("unknown@localhost");
+    expect(user!.name).toBe("unknown");
   });
 });
 

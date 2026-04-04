@@ -5,24 +5,43 @@ import axios from "axios";
 import { createApiKeyRecord, softDeleteApiKey, getApiKeyById, listApiKeys, updateApiKey } from "../db/database.js";
 import { readKeyHistory, readKeyStats, readOverview } from "../services/statsService.js";
 import { getSettings, updateSettings } from "../services/settingsService.js";
+import { validateCopilotUrl } from "../services/copilotUrlPolicy.js";
 import type { TimeWindow } from "../types.js";
 
 const router = Router();
 
 const createSchema = z.object({
-  name: z.string().min(1),
-  model: z.string().min(1).optional(),
+  name: z.string().min(1).max(255),
+  model: z.string().min(1).max(255).optional(),
 });
 
 const updateSchema = z.object({
-  name: z.string().min(1).optional(),
-  model: z.string().min(1).optional(),
+  name: z.string().min(1).max(255).optional(),
+  model: z.string().min(1).max(255).optional(),
   is_active: z.number().int().min(0).max(1).optional(),
 });
 
+const copilotUrlSchema = z
+  .string()
+  .url()
+  .superRefine((url, ctx) => {
+    const result = validateCopilotUrl(url);
+    if (!result.ok) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: result.error });
+    }
+  })
+  .transform((url) => {
+    const result = validateCopilotUrl(url);
+    return result.ok ? result.normalizedUrl : url;
+  });
+
 const settingsSchema = z.object({
-  copilot_url: z.string().url().optional(),
-  default_model: z.string().min(1).optional(),
+  copilot_url: copilotUrlSchema.optional(),
+  default_model: z.string().min(1).max(255).optional(),
+});
+
+const healthCheckSchema = z.object({
+  copilot_url: copilotUrlSchema.optional(),
 });
 
 function normalizeWindow(value: string | undefined): TimeWindow {
@@ -30,6 +49,25 @@ function normalizeWindow(value: string | undefined): TimeWindow {
     return value;
   }
   return "24h";
+}
+
+async function checkCopilotHealth(testUrl: string) {
+  const start = Date.now();
+  try {
+    const response = await axios.get(`${testUrl}/v1/models`, {
+      timeout: 5000,
+      maxRedirects: 0,
+      validateStatus: () => true,
+    });
+    const latencyMs = Date.now() - start;
+    if (response.status === 200 && response.data?.data) {
+      const models = (response.data.data as Array<{ id: string }>).map((m) => m.id);
+      return { ok: true, latencyMs, models };
+    }
+    return { ok: false, latencyMs, status: response.status };
+  } catch {
+    return { ok: false, latencyMs: Date.now() - start };
+  }
 }
 
 // ── Key routes ──────────────────────────────────────────────────────────────
@@ -131,43 +169,20 @@ router.put("/settings", (req, res) => {
 // GET: uses the saved copilot_url from settings (used by HealthIndicator polling)
 router.get("/health/copilot", async (_req, res) => {
   const testUrl = getSettings().copilot_url;
-  const start = Date.now();
-  try {
-    const response = await axios.get(`${testUrl}/v1/models`, {
-      timeout: 5000,
-      validateStatus: () => true,
-    });
-    const latencyMs = Date.now() - start;
-    if (response.status === 200 && response.data?.data) {
-      const models = (response.data.data as Array<{ id: string }>).map((m) => m.id);
-      return res.json({ ok: true, latencyMs, models });
-    }
-    return res.json({ ok: false, latencyMs, status: response.status });
-  } catch {
-    return res.json({ ok: false, latencyMs: Date.now() - start });
-  }
+  return res.json(await checkCopilotHealth(testUrl));
 });
 
 // POST: accepts copilot_url in body for testing an unsaved URL
 router.post("/health/copilot", async (req, res) => {
+  const parsed = healthCheckSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
   // Accept URL from request body (for testing with unsaved URL)
   // or fall back to cached settings (for periodic checks)
-  const testUrl = req.body?.copilot_url || getSettings().copilot_url;
-  const start = Date.now();
-  try {
-    const response = await axios.get(`${testUrl}/v1/models`, {
-      timeout: 5000,
-      validateStatus: () => true,
-    });
-    const latencyMs = Date.now() - start;
-    if (response.status === 200 && response.data?.data) {
-      const models = (response.data.data as Array<{ id: string }>).map((m) => m.id);
-      return res.json({ ok: true, latencyMs, models });
-    }
-    return res.json({ ok: false, latencyMs, status: response.status });
-  } catch {
-    return res.json({ ok: false, latencyMs: Date.now() - start });
-  }
+  const testUrl = parsed.data.copilot_url ?? getSettings().copilot_url;
+  return res.json(await checkCopilotHealth(testUrl));
 });
 
 export default router;

@@ -1,14 +1,21 @@
 import { Router, type Request, type Response } from "express";
 import { apiKeyAuth } from "../middleware/apiKeyAuth.js";
+import { clientRateLimit } from "../middleware/rateLimiters.js";
 import { proxyRequest, proxyRequestStreaming } from "../services/proxyService.js";
 import { recordRequest } from "../services/statsService.js";
 import { getCachedSettings } from "../services/settingsService.js";
 
 const router = Router();
 
-/** Extract client IP and Host from a request (reused in both handlers). */
+/** Extract client IP and Host from a request (reused in both handlers).
+ *  In production (behind Cloudflare), CF-Connecting-IP is the authoritative real IP
+ *  and cannot be spoofed by the client (unlike X-Forwarded-For).
+ *  In dev/test, fall back to X-Forwarded-For or the socket address.
+ */
 function extractClientInfo(req: Request) {
+  const cfIp = req.headers["cf-connecting-ip"];
   const clientIp =
+    (typeof cfIp === "string" && cfIp ? cfIp.trim() : null) ??
     (typeof req.headers["x-forwarded-for"] === "string" ? req.headers["x-forwarded-for"].split(",")[0].trim() : null) ??
     req.socket.remoteAddress ??
     null;
@@ -236,6 +243,7 @@ async function handleProxy(req: Request, res: Response, path: string) {
 }
 
 router.use(apiKeyAuth);
+router.use(clientRateLimit);
 router.get("/models", (req, res) => handleProxy(req, res, "/v1/models"));
 router.post("/chat/completions", (req, res) => handleProxy(req, res, "/v1/chat/completions"));
 router.post("/completions", (req, res) => handleProxy(req, res, "/v1/completions"));
