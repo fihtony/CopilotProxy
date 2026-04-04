@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 /**
  * Admin Routes Tests
  *
@@ -13,8 +15,11 @@
  */
 
 import request from "supertest";
+import { createServer } from "node:http";
 import { createApp } from "../../server/src/app.js";
 import { LOCAL_ADMIN_USER } from "../../server/src/middleware/cloudflareAuth.js";
+import { updateSettingsInDb } from "../../server/src/db/database.js";
+import { getSettings } from "../../server/src/services/settingsService.js";
 
 describe("admin routes", () => {
   const app = createApp();
@@ -70,6 +75,8 @@ describe("admin routes", () => {
   it("rejects invalid create payload", async () => {
     await request(app).post("/api/admin/keys").send({}).expect(400);
     await request(app).post("/api/admin/keys").send({ name: "" }).expect(400);
+    await request(app).post("/api/admin/keys").send({ name: "a".repeat(256) }).expect(400);
+    await request(app).post("/api/admin/keys").send({ name: "Valid", model: "m".repeat(256) }).expect(400);
   });
 
   it("lists keys with search filter", async () => {
@@ -136,6 +143,15 @@ describe("admin routes", () => {
 
   it("rejects invalid settings", async () => {
     await request(app).put("/api/admin/settings").send({ copilot_url: "not-a-url" }).expect(400);
+    await request(app).put("/api/admin/settings").send({ default_model: "m".repeat(256) }).expect(400);
+  });
+
+  it("sanitizes an unsafe stored upstream URL before returning settings", async () => {
+    const safeUrl = getSettings().copilot_url;
+    updateSettingsInDb({ copilot_url: "http://169.254.169.254" });
+
+    const res = await request(app).get("/api/admin/settings").expect(200);
+    expect(res.body.copilot_url).toBe(safeUrl);
   });
 
   // ── Upstream health ─────────────────────────────────────────────────────
@@ -144,5 +160,41 @@ describe("admin routes", () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.latencyMs).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(res.body.models)).toBe(true);
+  });
+
+  it("rejects blocked metadata URLs when testing an unsaved upstream", async () => {
+    await request(app).post("/api/admin/health/copilot").send({ copilot_url: "http://169.254.169.254" }).expect(400);
+  });
+
+  it("does not follow upstream redirects during health checks", async () => {
+    const redirectServer = createServer((_req, res) => {
+      res.statusCode = 302;
+      res.setHeader("Location", "http://169.254.169.254/latest/meta-data");
+      res.end();
+    });
+
+    await new Promise<void>((resolve) => redirectServer.listen(0, "127.0.0.1", resolve));
+    const address = redirectServer.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+
+    try {
+      const res = await request(app)
+        .post("/api/admin/health/copilot")
+        .send({ copilot_url: `http://127.0.0.1:${port}` })
+        .expect(200);
+
+      expect(res.body.ok).toBe(false);
+      expect(res.body.status).toBe(302);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        redirectServer.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    }
   });
 });

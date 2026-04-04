@@ -11,6 +11,7 @@ export async function proxyRequest(baseURL: string, path: string, body: Record<s
     method: path === "/v1/models" ? "GET" : "POST",
     data: payload,
     headers: { "Content-Type": "application/json" },
+    maxRedirects: 0,
     validateStatus: () => true,
   });
   return { status: response.status, data: response.data };
@@ -40,6 +41,7 @@ export async function proxyRequestStreaming(
     method: "POST",
     data: payload,
     headers: { "Content-Type": "application/json" },
+    maxRedirects: 0,
     responseType: "stream",
     validateStatus: () => true,
   });

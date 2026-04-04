@@ -19,6 +19,10 @@
     "test:api": "npm run test -w server",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
+  "overrides": {
+    "path-to-regexp": "^8.4.2",
+    "handlebars": "^4.7.8"
+  },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "concurrently": "^9.1.2",
