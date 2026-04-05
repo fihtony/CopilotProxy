@@ -17,6 +17,7 @@
     "start": "concurrently \"npm run start -w server\" \"npm run preview -w ui\"",
     "test": "npm run test:api && npm run test:e2e",
     "test:api": "npm run test -w server",
+    "test:api:live": "npm run test:live -w server",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "overrides": {
