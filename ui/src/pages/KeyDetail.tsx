@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiClient, type KeyStatsResponse } from "../api/client";
+import { apiClient, buildStatsQuery, type KeyStatsResponse, type TimeWindowValue } from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
 import { RequestTable, type RequestItem } from "../components/RequestTable";
 import { formatDateTime } from "../utils/dateFormatter";
+import { formatLatencyMs } from "../utils/timelineUtils";
+import { readTimeWindowPreference, saveTimeWindowPreference } from "../utils/timeWindowPreferences";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
 export function KeyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [timeWindow, setTimeWindow] = useState<(typeof windows)[number]>("24h");
+  const [timeWindow, setTimeWindow] = useState<TimeWindowValue>("24h");
+  const [timeWindowReady, setTimeWindowReady] = useState(false);
   const [data, setData] = useState<KeyStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [history, setHistory] = useState<RequestItem[]>([]);
@@ -22,16 +25,46 @@ export function KeyDetail() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    readTimeWindowPreference("key_detail_time_window")
+      .then((savedWindow) => {
+        if (cancelled) return;
+        setTimeWindow(savedWindow);
+        setTimeWindowReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTimeWindowReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!timeWindowReady) {
+      return;
+    }
     if (!id) {
       setIsLoading(false);
       return;
     }
     setIsLoading(true);
-    apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?window=${timeWindow}`).then((r) => {
+    apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`).then((r) => {
       setData(r.data);
       setIsLoading(false);
     });
-  }, [id, timeWindow]);
+  }, [id, timeWindow, timeWindowReady]);
+
+  async function handleTimeWindowChange(nextWindow: TimeWindowValue) {
+    setTimeWindow(nextWindow);
+    try {
+      await saveTimeWindowPreference("key_detail_time_window", nextWindow);
+    } catch {
+      // Keep the selected window locally even if persistence fails.
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -116,10 +149,10 @@ export function KeyDetail() {
             </p>
           </div>
         </div>
-        {!isDeleted && (
+        {!isDeleted && timeWindowReady && (
           <div className="segmented-control">
             {windows.map((w) => (
-              <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => setTimeWindow(w)}>
+              <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => void handleTimeWindowChange(w)}>
                 {w}
               </button>
             ))}
@@ -132,18 +165,21 @@ export function KeyDetail() {
         <MetricCard label="Success Rate" value={`${stats?.successRate ?? 0}%`} />
         <MetricCard
           label="Avg Proxy Latency"
-          value={`${Math.round(stats?.avgProxyTime ?? 0)} ms`}
-          hints={[`P90: ${stats?.p90ProxyTime ?? 0}`, `P95: ${stats?.p95ProxyTime ?? 0}`, `P99: ${stats?.p99ProxyTime ?? 0}`]}
+          value={formatLatencyMs(stats?.avgProxyTime ?? 0)}
+          hints={[`P90: ${formatLatencyMs(stats?.p90ProxyTime ?? 0)}`, `P99: ${formatLatencyMs(stats?.p99ProxyTime ?? 0)}`]}
         />
         <MetricCard
           label="Avg Response Time"
-          value={`${Math.round(stats?.avgResponseTime ?? 0)} ms`}
-          hints={[`P90: ${stats?.p90ResponseTime ?? 0}`, `P95: ${stats?.p95ResponseTime ?? 0}`, `P99: ${stats?.p99ResponseTime ?? 0}`]}
+          value={formatLatencyMs(stats?.avgResponseTime ?? 0)}
+          hints={[
+            `P90: ${formatLatencyMs(stats?.p90ResponseTime ?? 0)}`,
+            `P99: ${formatLatencyMs(stats?.p99ResponseTime ?? 0)}`,
+          ]}
         />
         <MetricCard
           label="Avg Tokens"
           value={String(Math.round(stats?.avgTokensPerRequest ?? 0))}
-          hints={[`P90: ${stats?.p90Tokens ?? 0}`, `P95: ${stats?.p95Tokens ?? 0}`, `P99: ${stats?.p99Tokens ?? 0}`]}
+          hints={[`P90: ${stats?.p90Tokens ?? 0}`, `P99: ${stats?.p99Tokens ?? 0}`]}
         />
       </div>
 
@@ -152,6 +188,7 @@ export function KeyDetail() {
         title="Total Requests"
         subtitle="Number of requests over time"
         data={data?.timeline ?? []}
+        timeWindow={timeWindow}
         dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
       />
 
@@ -161,16 +198,19 @@ export function KeyDetail() {
           title="Avg Response Latency"
           subtitle="Proxy latency vs total response time"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[
             { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
             { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
           ]}
-          unit=" ms"
+          unit="ms"
+          autoScaleMs
         />
         <TimelineChart
           title="Success Rate"
           subtitle="Percentage of successful requests"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
           unit="%"
         />

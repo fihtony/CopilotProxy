@@ -1,4 +1,5 @@
 import { formatDateTime } from "../utils/dateFormatter";
+import { formatLatencyMs } from "../utils/timelineUtils";
 
 export interface RequestItem {
   id: number;
@@ -38,7 +39,7 @@ export function RequestTable({ items }: { items: RequestItem[] }) {
               <td>{formatDateTime(item.timestamp)}</td>
               <td>{item.path}</td>
               <td>{item.status_code}</td>
-              <td>{item.response_time_ms} ms</td>
+              <td>{formatLatencyMs(item.response_time_ms)}</td>
               <td>{item.model_requested ?? "n/a"}</td>
               <td>{item.model_used}</td>
               <td>{item.total_tokens ?? 0}</td>

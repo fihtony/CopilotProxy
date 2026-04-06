@@ -10,6 +10,8 @@ import type { TimeWindow } from "../types.js";
 
 const router = Router();
 
+const timeWindowSchema = z.enum(["24h", "7d", "30d", "90d"]);
+
 const createSchema = z.object({
   name: z.string().min(1).max(255),
   model: z.string().min(1).max(255).optional(),
@@ -38,6 +40,8 @@ const copilotUrlSchema = z
 const settingsSchema = z.object({
   copilot_url: copilotUrlSchema.optional(),
   default_model: z.string().min(1).max(255).optional(),
+  dashboard_time_window: timeWindowSchema.optional(),
+  key_detail_time_window: timeWindowSchema.optional(),
 });
 
 const healthCheckSchema = z.object({
@@ -49,6 +53,10 @@ function normalizeWindow(value: string | undefined): TimeWindow {
     return value;
   }
   return "24h";
+}
+
+function getRequestedTimeZone(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 async function checkCopilotHealth(testUrl: string) {
@@ -128,7 +136,7 @@ router.get("/keys/:id/stats", (req, res) => {
   }
 
   const window = key.is_deleted ? null : normalizeWindow(String(req.query.window ?? "24h"));
-  res.json({ item: key, ...readKeyStats(id, window) });
+  res.json({ item: key, ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone)) });
 });
 
 router.get("/keys/:id/history", (req, res) => {
@@ -145,7 +153,7 @@ router.get("/keys/:id/history", (req, res) => {
 
 router.get("/overview", (req, res) => {
   const settings = getSettings();
-  const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")));
+  const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")), getRequestedTimeZone(req.query.timezone));
   res.json({ ...overview, defaultModel: settings.default_model });
 });
 

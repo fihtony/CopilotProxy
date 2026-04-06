@@ -37,25 +37,61 @@ export function formatDate(iso: string | Date | null | undefined): string {
 
 /**
  * Format a date bucket for timeline charts.
- * - For hourly buckets (contains ":"): returns YYYY/MM/DD HH:00
- * - For daily buckets: returns YYYY/MM/DD
+ * - Current-year buckets use MM-DD
+ * - Cross-year buckets use YY-MM-DD
+ * - Time is shown as HH:MM only when the bucket includes a time component
  * @param bucket - Date bucket string (can be in various formats from backend)
  * @returns Formatted bucket label
  */
 export function formatBucketToLocalTime(bucket: string): string {
-  if (!bucket) return bucket;
-  // Backend now returns buckets already in LOCAL time via datetime(timestamp,'localtime').
-  // Format: "2026-03-07 14:00:00" (24h hourly) or "2026-03-07" (7d/30d/90d daily).
-  // Reformat the string parts directly — no Date/timezone conversion needed.
-  if (bucket.includes(" ")) {
-    const [datePart, timePart] = bucket.split(" ");
-    const [year, month, day] = datePart.split("-");
-    const [hour] = timePart.split(":");
-    return `${year}/${month}/${day} ${hour}:00`;
+  const label = getBucketAxisLabel(bucket);
+  return label.secondary ? `${label.primary} ${label.secondary}` : label.primary;
+}
+
+export interface BucketAxisLabelOptions {
+  suppressMidnightTime?: boolean;
+  /** Suppress all time parts from axis labels (e.g. for 7d window to keep axis height consistent with 30d/90d). */
+  suppressAllTime?: boolean;
+}
+
+export function getBucketAxisLabel(
+  bucket: string,
+  options?: BucketAxisLabelOptions,
+): { primary: string; secondary?: string } {
+  if (!bucket) return { primary: bucket };
+
+  const [datePart, timePart] = bucket.split(" ");
+  const [year, month, day] = datePart.split("-");
+  if (!year || !month || !day) {
+    return { primary: bucket };
   }
-  if (bucket.includes("-")) {
-    const [year, month, day] = bucket.split("-");
-    return `${year}/${month}/${day}`;
+
+  const currentYear = new Date().getFullYear();
+  const numericYear = Number(year);
+  const dateLabel = numericYear === currentYear ? `${month}-${day}` : `${year.slice(-2)}-${month}-${day}`;
+
+  if (!timePart) {
+    return { primary: dateLabel };
   }
-  return bucket;
+
+  const [hour = "00", minute = "00"] = timePart.split(":");
+  if (options?.suppressAllTime) {
+    return { primary: dateLabel };
+  }
+  if (options?.suppressMidnightTime && hour === "00" && minute === "00") {
+    return { primary: dateLabel };
+  }
+
+  return {
+    primary: dateLabel,
+    secondary: `${hour}:${minute}`,
+  };
+}
+
+export function hasVisibleSecondaryBucketAxisLabels(
+  buckets: string[],
+  options?: BucketAxisLabelOptions,
+  visibleTickStep = 1,
+) {
+  return buckets.some((bucket, index) => index % visibleTickStep === 0 && Boolean(getBucketAxisLabel(bucket, options).secondary));
 }

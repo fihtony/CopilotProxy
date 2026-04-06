@@ -5,12 +5,12 @@ export function recordRequest(record: RequestLogRecord) {
   insertRequestLog(record);
 }
 
-export function readOverview(window: TimeWindow) {
-  return getOverview(window);
+export function readOverview(window: TimeWindow, timeZone?: string) {
+  return getOverview(window, timeZone);
 }
 
-export function readKeyStats(id: number, window: TimeWindow | null) {
-  return getKeyStats(id, window);
+export function readKeyStats(id: number, window: TimeWindow | null, timeZone?: string) {
+  return getKeyStats(id, window, timeZone);
 }
 
 export function readKeyHistory(id: number, page: number, limit: number) {

@@ -63,3 +63,109 @@ test("TC-UI-04: back navigation from key detail returns to key management", asyn
   await expect(page).toHaveURL(/\/keys/);
   await expect(page.getByRole("heading", { name: "API Keys" })).toBeVisible();
 });
+
+test("highlights the saved dashboard time window on entry", async ({ page }) => {
+  await page.route("**/api/admin/settings", async (route) => {
+    await route.fulfill({
+      json: {
+        copilot_url: "http://127.0.0.1:1288",
+        default_model: "gpt-5-mini",
+        dashboard_time_window: "30d",
+        key_detail_time_window: "24h",
+      },
+    });
+  });
+
+  await page.route("**/api/admin/overview?**", async (route) => {
+    await route.fulfill({
+      json: {
+        defaultModel: "gpt-5-mini",
+        summary: {
+          totalCalls: 0,
+          successRate: 0,
+          avgProxyTime: 0,
+          avgResponseTime: 0,
+          activeKeys: 0,
+          avgTokensPerRequest: 0,
+          p90ProxyTime: 0,
+          p95ProxyTime: 0,
+          p99ProxyTime: 0,
+          p90ResponseTime: 0,
+          p95ResponseTime: 0,
+          p99ResponseTime: 0,
+          p90Tokens: 0,
+          p95Tokens: 0,
+          p99Tokens: 0,
+        },
+        keySummaries: [],
+        timeline: [],
+      },
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "30d" })).toHaveClass(/active/);
+});
+
+test("highlights the saved API key time window on entry", async ({ page }) => {
+  await page.route("**/api/admin/settings", async (route) => {
+    await route.fulfill({
+      json: {
+        copilot_url: "http://127.0.0.1:1288",
+        default_model: "gpt-5-mini",
+        dashboard_time_window: "24h",
+        key_detail_time_window: "7d",
+      },
+    });
+  });
+
+  await page.route("**/api/admin/keys/999/stats?**", async (route) => {
+    await route.fulfill({
+      json: {
+        item: {
+          id: 999,
+          key_hash: "hash",
+          key_preview: "cps_test...9999",
+          name: "Test Key",
+          model: "gpt-5-mini",
+          is_active: 1,
+          is_deleted: 0,
+          created_by_name: "Test User",
+          created_by_email: "test@example.com",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          last_used_at: null,
+        },
+        stats: {
+          totalCalls: 0,
+          successRate: 0,
+          avgProxyTime: 0,
+          avgResponseTime: 0,
+          avgTokensPerRequest: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+          p90ProxyTime: 0,
+          p95ProxyTime: 0,
+          p99ProxyTime: 0,
+          p90ResponseTime: 0,
+          p95ResponseTime: 0,
+          p99ResponseTime: 0,
+          p90Tokens: 0,
+          p95Tokens: 0,
+          p99Tokens: 0,
+        },
+        timeline: [],
+        recentErrors: [],
+        callsByIpAndHost: [],
+      },
+    });
+  });
+
+  await page.route("**/api/admin/keys/999/history", async (route) => {
+    await route.fulfill({ json: { items: [], total: 0 } });
+  });
+
+  await page.goto("/keys/999");
+  await expect(page.getByRole("button", { name: "7d" })).toHaveClass(/active/);
+});

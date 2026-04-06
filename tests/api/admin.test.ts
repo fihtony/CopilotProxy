@@ -131,19 +131,36 @@ describe("admin routes", () => {
     const res = await request(app).get("/api/admin/settings").expect(200);
     expect(res.body.copilot_url).toBeDefined();
     expect(res.body.default_model).toBeDefined();
+    expect(res.body.dashboard_time_window).toBeDefined();
+    expect(res.body.key_detail_time_window).toBeDefined();
   });
 
   it("updates settings", async () => {
-    const res = await request(app).put("/api/admin/settings").send({ default_model: "gpt-4o" }).expect(200);
+    const res = await request(app)
+      .put("/api/admin/settings")
+      .send({ default_model: "gpt-4o", dashboard_time_window: "7d", key_detail_time_window: "30d" })
+      .expect(200);
+
     expect(res.body.default_model).toBe("gpt-4o");
+    expect(res.body.dashboard_time_window).toBe("7d");
+    expect(res.body.key_detail_time_window).toBe("30d");
+
+    const reloaded = await request(app).get("/api/admin/settings").expect(200);
+    expect(reloaded.body.dashboard_time_window).toBe("7d");
+    expect(reloaded.body.key_detail_time_window).toBe("30d");
 
     // Restore
-    await request(app).put("/api/admin/settings").send({ default_model: "gpt-5-mini" }).expect(200);
+    await request(app)
+      .put("/api/admin/settings")
+      .send({ default_model: "gpt-5-mini", dashboard_time_window: "24h", key_detail_time_window: "24h" })
+      .expect(200);
   });
 
   it("rejects invalid settings", async () => {
     await request(app).put("/api/admin/settings").send({ copilot_url: "not-a-url" }).expect(400);
     await request(app).put("/api/admin/settings").send({ default_model: "m".repeat(256) }).expect(400);
+    await request(app).put("/api/admin/settings").send({ dashboard_time_window: "12h" }).expect(400);
+    await request(app).put("/api/admin/settings").send({ key_detail_time_window: "1d" }).expect(400);
   });
 
   it("sanitizes an unsafe stored upstream URL before returning settings", async () => {

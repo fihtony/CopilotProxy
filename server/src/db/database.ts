@@ -52,6 +52,8 @@ const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value, upd
 const now = new Date().toISOString();
 seedSettings.run("copilot_url", config.copilotUrl, now);
 seedSettings.run("default_model", "gpt-5-mini", now);
+seedSettings.run("dashboard_time_window", "24h", now);
+seedSettings.run("key_detail_time_window", "24h", now);
 
 // ── Settings helpers ────────────────────────────────────────────────────────
 export function getSettingsFromDb(): SettingsRecord {
@@ -60,6 +62,8 @@ export function getSettingsFromDb(): SettingsRecord {
   return {
     copilot_url: map.copilot_url ?? config.copilotUrl,
     default_model: map.default_model ?? "gpt-5-mini",
+    dashboard_time_window: (map.dashboard_time_window as TimeWindow | undefined) ?? "24h",
+    key_detail_time_window: (map.key_detail_time_window as TimeWindow | undefined) ?? "24h",
   };
 }
 
@@ -70,6 +74,8 @@ export function updateSettingsInDb(patch: Partial<SettingsRecord>) {
   );
   if (patch.copilot_url !== undefined) upsert.run("copilot_url", patch.copilot_url, ts);
   if (patch.default_model !== undefined) upsert.run("default_model", patch.default_model, ts);
+  if (patch.dashboard_time_window !== undefined) upsert.run("dashboard_time_window", patch.dashboard_time_window, ts);
+  if (patch.key_detail_time_window !== undefined) upsert.run("key_detail_time_window", patch.key_detail_time_window, ts);
 }
 
 // ── API Key helpers ─────────────────────────────────────────────────────────
@@ -213,50 +219,319 @@ export function insertRequestLog(record: RequestLogRecord) {
   );
 }
 
-// ── Percentile helpers (computed JS-side) ───────────────────────────────────
+// ── Stats helpers ───────────────────────────────────────────────────────────
+interface StatsRequestRow {
+  id: number;
+  api_key_id: number;
+  timestamp: string;
+  path: string;
+  status_code: number;
+  success: number;
+  response_time_ms: number;
+  proxy_time_ms: number;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  total_tokens: number | null;
+  error_message: string | null;
+  ip_address: string | null;
+  host: string | null;
+}
+
+interface LocalDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
+interface LocalDateTime extends LocalDate {
+  hour: number;
+  minute: number;
+  second: number;
+}
+
+interface WindowSeries {
+  expectedBuckets: string[];
+  bucketForTimestamp: (timestamp: string) => string | null;
+  coarseStart: string;
+}
+
+interface SummaryAccumulator {
+  calls: number;
+  successCalls: number;
+  proxyTimeSum: number;
+  responseTimeSum: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+interface TimelineAccumulator {
+  calls: number;
+  successCalls: number;
+  proxyTimeSum: number;
+  responseTimeSum: number;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, idx)];
 }
 
-function toWindowStart(window: TimeWindow) {
+function getFormatter(timeZone: string) {
+  let formatter = formatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    formatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+function normalizeTimeZone(timeZone?: string) {
+  if (timeZone) {
+    try {
+      Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+      return timeZone;
+    } catch {
+      // fall through to default
+    }
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function toLocalDateKey(parts: LocalDate) {
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}`;
+}
+
+function parseLocalDateKey(value: string): LocalDate {
+  const [year, month, day] = value.split("-").map(Number);
+  return { year, month, day };
+}
+
+function localDateValue(parts: LocalDate) {
+  return Date.UTC(parts.year, parts.month - 1, parts.day);
+}
+
+function addLocalDays(parts: LocalDate, days: number): LocalDate {
+  const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function getLocalDateTime(date: Date, timeZone: string): LocalDateTime {
+  const parts = getFormatter(timeZone).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second),
+  };
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = getLocalDateTime(date, timeZone);
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - date.getTime();
+}
+
+function localDateTimeToUtc(parts: LocalDateTime, timeZone: string) {
+  const utcGuess = new Date(Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second));
+  const initialOffset = getTimeZoneOffsetMs(utcGuess, timeZone);
+  const candidate = new Date(utcGuess.getTime() - initialOffset);
+  const candidateOffset = getTimeZoneOffsetMs(candidate, timeZone);
+  if (candidateOffset !== initialOffset) {
+    return new Date(utcGuess.getTime() - candidateOffset);
+  }
+  return candidate;
+}
+
+function toHourBucketKey(date: Date, timeZone: string) {
+  const parts = getLocalDateTime(date, timeZone);
+  return `${toLocalDateKey(parts)} ${pad2(parts.hour)}:00:00`;
+}
+
+function toFourHourBucketKey(date: Date, timeZone: string) {
+  const parts = getLocalDateTime(date, timeZone);
+  const hour = Math.floor(parts.hour / 4) * 4;
+  return `${toLocalDateKey(parts)} ${pad2(hour)}:00:00`;
+}
+
+function getTodayInTimeZone(timeZone: string, now: Date) {
+  const parts = getLocalDateTime(now, timeZone);
+  return { year: parts.year, month: parts.month, day: parts.day };
+}
+
+function buildWindowSeries(window: TimeWindow, timeZone: string, now = new Date()): WindowSeries {
+  const expectedBuckets: string[] = [];
+
   if (window === "24h") {
-    // Rolling 24-hour window from the current moment
-    return new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  }
-  // For multi-day windows: start from midnight of (N-1) days ago in local time
-  // so the result contains exactly N calendar day buckets including today.
-  const daysBack: Record<string, number> = { "7d": 6, "30d": 29, "90d": 89 };
-  const now = new Date();
-  const todayAtMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return new Date(todayAtMidnight.getTime() - daysBack[window] * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function bucketExpression(window: TimeWindow) {
-  // Use datetime(timestamp, 'localtime') so each bucket aligns to the user's
-  // local calendar day/hour rather than UTC.
-  if (window === "24h") return "strftime('%Y-%m-%d %H:00:00', datetime(timestamp, 'localtime'))";
-  return "strftime('%Y-%m-%d', datetime(timestamp, 'localtime'))";
-}
-
-function computePercentiles(windowStart: string, keyFilter?: number) {
-  let where = "timestamp >= ?";
-  const params: (string | number)[] = [windowStart];
-  if (keyFilter !== undefined) {
-    where += " AND api_key_id = ?";
-    params.push(keyFilter);
+    const currentLocal = getLocalDateTime(now, timeZone);
+    const currentHourUtc = localDateTimeToUtc({ ...currentLocal, minute: 0, second: 0 }, timeZone);
+    const earliestHourUtc = new Date(currentHourUtc.getTime() - 23 * HOUR_MS);
+    for (let i = 0; i < 24; i++) {
+      expectedBuckets.push(toHourBucketKey(new Date(earliestHourUtc.getTime() + i * HOUR_MS), timeZone));
+    }
+    const expectedSet = new Set(expectedBuckets);
+    return {
+      expectedBuckets,
+      coarseStart: earliestHourUtc.toISOString(),
+      bucketForTimestamp: (timestamp) => {
+        const bucket = toHourBucketKey(new Date(timestamp), timeZone);
+        return expectedSet.has(bucket) ? bucket : null;
+      },
+    };
   }
 
-  const proxyTimes = (
-    db.prepare(`SELECT proxy_time_ms AS v FROM requests WHERE ${where} ORDER BY proxy_time_ms`).all(...params) as { v: number }[]
-  ).map((r) => r.v);
-  const responseTimes = (
-    db.prepare(`SELECT response_time_ms AS v FROM requests WHERE ${where} ORDER BY response_time_ms`).all(...params) as { v: number }[]
-  ).map((r) => r.v);
-  const tokens = (
-    db.prepare(`SELECT COALESCE(total_tokens, 0) AS v FROM requests WHERE ${where} ORDER BY v`).all(...params) as { v: number }[]
-  ).map((r) => r.v);
+  const today = getTodayInTimeZone(timeZone, now);
+  if (window === "7d") {
+    const startDay = addLocalDays(today, -6);
+    for (let day = 0; day < 7; day++) {
+      const currentDay = addLocalDays(startDay, day);
+      for (let hour = 0; hour < 24; hour += 4) {
+        expectedBuckets.push(`${toLocalDateKey(currentDay)} ${pad2(hour)}:00:00`);
+      }
+    }
+    const expectedSet = new Set(expectedBuckets);
+    return {
+      expectedBuckets,
+      coarseStart: localDateTimeToUtc({ ...startDay, hour: 0, minute: 0, second: 0 }, timeZone).toISOString(),
+      bucketForTimestamp: (timestamp) => {
+        const bucket = toFourHourBucketKey(new Date(timestamp), timeZone);
+        return expectedSet.has(bucket) ? bucket : null;
+      },
+    };
+  }
+
+  if (window === "30d") {
+    const startDay = addLocalDays(today, -29);
+    for (let day = 0; day < 30; day++) {
+      expectedBuckets.push(toLocalDateKey(addLocalDays(startDay, day)));
+    }
+    const expectedSet = new Set(expectedBuckets);
+    return {
+      expectedBuckets,
+      coarseStart: localDateTimeToUtc({ ...startDay, hour: 0, minute: 0, second: 0 }, timeZone).toISOString(),
+      bucketForTimestamp: (timestamp) => {
+        const bucket = toLocalDateKey(getLocalDateTime(new Date(timestamp), timeZone));
+        return expectedSet.has(bucket) ? bucket : null;
+      },
+    };
+  }
+
+  const startDay = addLocalDays(today, -89);
+  const dateToBucket = new Map<string, string>();
+  for (let index = 0; index < 90; index++) {
+    const day = addLocalDays(startDay, index);
+    const dayKey = toLocalDateKey(day);
+    const bucketKey = toLocalDateKey(addLocalDays(startDay, Math.floor(index / 3) * 3));
+    dateToBucket.set(dayKey, bucketKey);
+    if (index % 3 === 0) {
+      expectedBuckets.push(bucketKey);
+    }
+  }
+
+  return {
+    expectedBuckets,
+    coarseStart: localDateTimeToUtc({ ...startDay, hour: 0, minute: 0, second: 0 }, timeZone).toISOString(),
+    bucketForTimestamp: (timestamp) => dateToBucket.get(toLocalDateKey(getLocalDateTime(new Date(timestamp), timeZone))) ?? null,
+  };
+}
+
+function buildAllTimeSeries(rows: StatsRequestRow[], timeZone: string): WindowSeries {
+  if (rows.length === 0) {
+    return {
+      expectedBuckets: [],
+      coarseStart: "1970-01-01T00:00:00.000Z",
+      bucketForTimestamp: () => null,
+    };
+  }
+
+  const earliest = rows.reduce((min, row) => (row.timestamp < min.timestamp ? row : min), rows[0]);
+  const startDay = parseLocalDateKey(toLocalDateKey(getLocalDateTime(new Date(earliest.timestamp), timeZone)));
+  const today = getTodayInTimeZone(timeZone, new Date());
+  const expectedBuckets: string[] = [];
+  for (let cursor = startDay; localDateValue(cursor) <= localDateValue(today); cursor = addLocalDays(cursor, 1)) {
+    expectedBuckets.push(toLocalDateKey(cursor));
+  }
+  const expectedSet = new Set(expectedBuckets);
+  return {
+    expectedBuckets,
+    coarseStart: earliest.timestamp,
+    bucketForTimestamp: (timestamp) => {
+      const bucket = toLocalDateKey(getLocalDateTime(new Date(timestamp), timeZone));
+      return expectedSet.has(bucket) ? bucket : null;
+    },
+  };
+}
+
+function createSummaryAccumulator(): SummaryAccumulator {
+  return {
+    calls: 0,
+    successCalls: 0,
+    proxyTimeSum: 0,
+    responseTimeSum: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function addRowToSummary(accumulator: SummaryAccumulator, row: StatsRequestRow) {
+  accumulator.calls += 1;
+  if (row.success === 1) {
+    accumulator.successCalls += 1;
+    accumulator.proxyTimeSum += row.proxy_time_ms;
+    accumulator.responseTimeSum += row.response_time_ms;
+  }
+  accumulator.promptTokens += row.prompt_tokens ?? 0;
+  accumulator.completionTokens += row.completion_tokens ?? 0;
+  accumulator.totalTokens += row.total_tokens ?? 0;
+}
+
+function finalizeSummary(accumulator: SummaryAccumulator) {
+  return {
+    totalCalls: accumulator.calls,
+    successRate: accumulator.calls === 0 ? 0 : round2((accumulator.successCalls / accumulator.calls) * 100),
+    avgProxyTime: accumulator.successCalls === 0 ? 0 : round2(accumulator.proxyTimeSum / accumulator.successCalls),
+    avgResponseTime: accumulator.successCalls === 0 ? 0 : round2(accumulator.responseTimeSum / accumulator.successCalls),
+    avgTokensPerRequest: accumulator.calls === 0 ? 0 : round2(accumulator.totalTokens / accumulator.calls),
+    promptTokens: accumulator.promptTokens,
+    completionTokens: accumulator.completionTokens,
+    totalTokens: accumulator.totalTokens,
+  };
+}
+
+function computePercentilesFromRows(rows: StatsRequestRow[]) {
+  const successfulRows = rows.filter((row) => row.success === 1);
+  const proxyTimes = successfulRows.map((row) => row.proxy_time_ms).sort((a, b) => a - b);
+  const responseTimes = successfulRows.map((row) => row.response_time_ms).sort((a, b) => a - b);
+  const tokens = rows.map((row) => row.total_tokens ?? 0).sort((a, b) => a - b);
 
   return {
     p90ProxyTime: percentile(proxyTimes, 90),
@@ -271,141 +546,200 @@ function computePercentiles(windowStart: string, keyFilter?: number) {
   };
 }
 
+function buildTimeline(rows: StatsRequestRow[], series: WindowSeries) {
+  const timelineMap = new Map<string, TimelineAccumulator>(
+    series.expectedBuckets.map((bucket) => [bucket, { calls: 0, successCalls: 0, proxyTimeSum: 0, responseTimeSum: 0 }]),
+  );
+  const filteredRows: StatsRequestRow[] = [];
+
+  for (const row of rows) {
+    const bucket = series.bucketForTimestamp(row.timestamp);
+    if (!bucket) {
+      continue;
+    }
+
+    filteredRows.push(row);
+    const accumulator = timelineMap.get(bucket);
+    if (!accumulator) {
+      continue;
+    }
+
+    accumulator.calls += 1;
+    if (row.success === 1) {
+      accumulator.successCalls += 1;
+      accumulator.proxyTimeSum += row.proxy_time_ms;
+      accumulator.responseTimeSum += row.response_time_ms;
+    }
+  }
+
+  const timeline = series.expectedBuckets.map((bucket) => {
+    const accumulator = timelineMap.get(bucket)!;
+    return {
+      bucket,
+      calls: accumulator.calls,
+      avgProxyTime: accumulator.successCalls === 0 ? 0 : round2(accumulator.proxyTimeSum / accumulator.successCalls),
+      avgResponseTime: accumulator.successCalls === 0 ? 0 : round2(accumulator.responseTimeSum / accumulator.successCalls),
+      successRate: accumulator.calls === 0 ? 0 : round2((accumulator.successCalls / accumulator.calls) * 100),
+    };
+  });
+
+  return { filteredRows, timeline };
+}
+
+function getOverviewRows(windowStart: string) {
+  return db
+    .prepare(
+      `
+    SELECT
+      requests.id,
+      requests.api_key_id,
+      requests.timestamp,
+      requests.path,
+      requests.status_code,
+      requests.success,
+      requests.response_time_ms,
+      requests.proxy_time_ms,
+      requests.prompt_tokens,
+      requests.completion_tokens,
+      requests.total_tokens,
+      requests.error_message,
+      requests.ip_address,
+      requests.host
+    FROM requests
+    WHERE requests.timestamp >= ?
+    ORDER BY requests.timestamp ASC
+  `,
+    )
+    .all(windowStart) as StatsRequestRow[];
+}
+
+function getKeyRequestRows(id: number, windowStart: string) {
+  return db
+    .prepare(
+      `
+    SELECT
+      id,
+      api_key_id,
+      timestamp,
+      path,
+      status_code,
+      success,
+      response_time_ms,
+      proxy_time_ms,
+      prompt_tokens,
+      completion_tokens,
+      total_tokens,
+      error_message,
+      ip_address,
+      host
+    FROM requests
+    WHERE api_key_id = ? AND timestamp >= ?
+    ORDER BY timestamp ASC
+  `,
+    )
+    .all(id, windowStart) as StatsRequestRow[];
+}
+
+function buildCallsByIpAndHost(rows: StatsRequestRow[]) {
+  const map = new Map<string, { ip_address: string; host: string; calls: number }>();
+  for (const row of rows) {
+    const ip_address = row.ip_address ?? "Unknown";
+    const host = row.host ?? "Unknown";
+    const key = `${ip_address}\u0000${host}`;
+    const current = map.get(key);
+    if (current) {
+      current.calls += 1;
+    } else {
+      map.set(key, { ip_address, host, calls: 1 });
+    }
+  }
+  return [...map.values()].sort((left, right) => right.calls - left.calls || left.host.localeCompare(right.host));
+}
+
 // ── Stats queries ───────────────────────────────────────────────────────────
-export function getOverview(window: TimeWindow) {
-  const windowStart = toWindowStart(window);
-  const bucket = bucketExpression(window);
+export function getOverview(window: TimeWindow, timeZone?: string) {
+  const resolvedTimeZone = normalizeTimeZone(timeZone);
+  const series = buildWindowSeries(window, resolvedTimeZone);
+  const rows = getOverviewRows(series.coarseStart);
+  const { filteredRows, timeline } = buildTimeline(rows, series);
 
-  const summary = db
-    .prepare(
-      `
-    SELECT
-      COUNT(*) AS totalCalls,
-      ROUND(COALESCE(AVG(success), 0) * 100, 2) AS successRate,
-      ROUND(COALESCE(AVG(proxy_time_ms), 0), 2) AS avgProxyTime,
-      ROUND(COALESCE(AVG(response_time_ms), 0), 2) AS avgResponseTime,
-      COUNT(DISTINCT api_key_id) AS activeKeys,
-      ROUND(COALESCE(AVG(COALESCE(total_tokens, 0)), 0), 2) AS avgTokensPerRequest
-    FROM requests
-    WHERE timestamp >= ?
-  `,
-    )
-    .get(windowStart) as Record<string, number>;
+  const summaryAccumulator = createSummaryAccumulator();
+  for (const row of filteredRows) {
+    addRowToSummary(summaryAccumulator, row);
+  }
 
-  const pValues = computePercentiles(windowStart);
+  const summary = {
+    ...finalizeSummary(summaryAccumulator),
+    activeKeys: new Set(filteredRows.map((row) => row.api_key_id)).size,
+  };
+  const pValues = computePercentilesFromRows(filteredRows);
 
-  const keySummaries = db
-    .prepare(
-      `
-    SELECT
-      api_keys.id,
-      api_keys.name,
-      api_keys.model,
-      api_keys.key_preview AS keyPreview,
-      api_keys.is_deleted AS isDeleted,
-      api_keys.created_at AS createdAt,
-      COUNT(requests.id) AS totalCalls,
-      ROUND(COALESCE(AVG(requests.success), 0) * 100, 2) AS successRate,
-      ROUND(COALESCE(AVG(requests.proxy_time_ms), 0), 2) AS avgProxyTime,
-      ROUND(COALESCE(AVG(requests.response_time_ms), 0), 2) AS avgResponseTime
-    FROM api_keys
-    LEFT JOIN requests ON requests.api_key_id = api_keys.id AND requests.timestamp >= ?
-    GROUP BY api_keys.id
-    ORDER BY totalCalls DESC, api_keys.created_at DESC
-  `,
-    )
-    .all(windowStart);
+  const allKeys = db.prepare("SELECT id, name, model, key_preview AS keyPreview, is_deleted AS isDeleted, created_at AS createdAt FROM api_keys").all() as Array<{
+    id: number;
+    name: string;
+    model: string;
+    keyPreview: string;
+    isDeleted: number;
+    createdAt: string;
+  }>;
 
-  const timeline = db
-    .prepare(
-      `
-    SELECT
-      ${bucket} AS bucket,
-      COUNT(*) AS calls,
-      ROUND(COALESCE(AVG(proxy_time_ms), 0), 2) AS avgProxyTime,
-      ROUND(COALESCE(AVG(response_time_ms), 0), 2) AS avgResponseTime,
-      ROUND(COALESCE(AVG(success), 0) * 100, 2) AS successRate
-    FROM requests
-    WHERE timestamp >= ?
-    GROUP BY bucket
-    ORDER BY bucket ASC
-  `,
-    )
-    .all(windowStart);
+  const perKey = new Map<number, SummaryAccumulator>();
+  for (const row of filteredRows) {
+    const accumulator = perKey.get(row.api_key_id) ?? createSummaryAccumulator();
+    addRowToSummary(accumulator, row);
+    perKey.set(row.api_key_id, accumulator);
+  }
+
+  const keySummaries = allKeys
+    .map((key) => {
+      const accumulator = perKey.get(key.id) ?? createSummaryAccumulator();
+      const summaryForKey = finalizeSummary(accumulator);
+      return {
+        ...key,
+        totalCalls: summaryForKey.totalCalls,
+        successRate: summaryForKey.successRate,
+        avgProxyTime: summaryForKey.avgProxyTime,
+        avgResponseTime: summaryForKey.avgResponseTime,
+      };
+    })
+    .sort((left, right) => right.totalCalls - left.totalCalls || right.createdAt.localeCompare(left.createdAt));
 
   return { summary: { ...summary, ...pValues }, keySummaries, timeline };
 }
 
-export function getKeyStats(id: number, window: TimeWindow | null) {
+export function getKeyStats(id: number, window: TimeWindow | null, timeZone?: string) {
+  const resolvedTimeZone = normalizeTimeZone(timeZone);
   const useAllTime = window === null;
-  const windowStart = useAllTime ? "1970-01-01T00:00:00.000Z" : toWindowStart(window);
-  const bucket = useAllTime ? "strftime('%Y-%m-%d', timestamp)" : bucketExpression(window);
+  const coarseStart = useAllTime ? "1970-01-01T00:00:00.000Z" : buildWindowSeries(window, resolvedTimeZone).coarseStart;
+  const rows = getKeyRequestRows(id, coarseStart);
+  const series = useAllTime ? buildAllTimeSeries(rows, resolvedTimeZone) : buildWindowSeries(window, resolvedTimeZone);
+  const { filteredRows, timeline } = buildTimeline(rows, series);
 
-  const stats = db
-    .prepare(
-      `
-    SELECT
-      COUNT(*) AS totalCalls,
-      ROUND(COALESCE(AVG(success), 0) * 100, 2) AS successRate,
-      ROUND(COALESCE(AVG(proxy_time_ms), 0), 2) AS avgProxyTime,
-      ROUND(COALESCE(AVG(response_time_ms), 0), 2) AS avgResponseTime,
-      ROUND(COALESCE(AVG(COALESCE(total_tokens, 0)), 0), 2) AS avgTokensPerRequest,
-      COALESCE(SUM(prompt_tokens), 0) AS promptTokens,
-      COALESCE(SUM(completion_tokens), 0) AS completionTokens,
-      COALESCE(SUM(total_tokens), 0) AS totalTokens
-    FROM requests
-    WHERE api_key_id = ? AND timestamp >= ?
-  `,
-    )
-    .get(id, windowStart) as Record<string, number>;
+  const statsAccumulator = createSummaryAccumulator();
+  for (const row of filteredRows) {
+    addRowToSummary(statsAccumulator, row);
+  }
 
-  const pValues = computePercentiles(windowStart, id);
+  const stats = finalizeSummary(statsAccumulator);
+  const pValues = computePercentilesFromRows(filteredRows);
+  const recentErrors = filteredRows
+    .filter((row) => row.success === 0)
+    .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
+    .slice(0, 20)
+    .map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      path: row.path,
+      status_code: row.status_code,
+      error_message: row.error_message,
+    }));
 
-  const timeline = db
-    .prepare(
-      `
-    SELECT
-      ${bucket} AS bucket,
-      COUNT(*) AS calls,
-      ROUND(COALESCE(AVG(proxy_time_ms), 0), 2) AS avgProxyTime,
-      ROUND(COALESCE(AVG(response_time_ms), 0), 2) AS avgResponseTime,
-      ROUND(COALESCE(AVG(success), 0) * 100, 2) AS successRate
-    FROM requests
-    WHERE api_key_id = ? AND timestamp >= ?
-    GROUP BY bucket
-    ORDER BY bucket ASC
-  `,
-    )
-    .all(id, windowStart);
-
-  const recentErrors = db
-    .prepare(
-      `
-    SELECT id, timestamp, path, status_code, error_message
-    FROM requests
-    WHERE api_key_id = ? AND success = 0 AND timestamp >= ?
-    ORDER BY timestamp DESC
-    LIMIT 20
-  `,
-    )
-    .all(id, windowStart);
-
-  const callsByIpAndHost = db
-    .prepare(
-      `
-    SELECT
-      COALESCE(ip_address, 'Unknown') AS ip_address,
-      COALESCE(host, 'Unknown') AS host,
-      COUNT(*) AS calls
-    FROM requests
-    WHERE api_key_id = ? AND timestamp >= ?
-    GROUP BY ip_address, host
-    ORDER BY calls DESC
-  `,
-    )
-    .all(id, windowStart) as Array<{ ip_address: string; host: string; calls: number }>;
-
-  return { stats: { ...stats, ...pValues }, timeline, recentErrors, callsByIpAndHost };
+  return {
+    stats: { ...stats, ...pValues },
+    timeline,
+    recentErrors,
+    callsByIpAndHost: buildCallsByIpAndHost(filteredRows),
+  };
 }
 
 export function getKeyHistory(id: number, page: number, limit: number) {

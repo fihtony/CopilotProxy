@@ -13,6 +13,73 @@
 
 import request from "supertest";
 import { createApp } from "../../server/src/app.js";
+import { db } from "../../server/src/db/database.js";
+
+function insertSyntheticRequest(input: {
+  apiKeyId: number;
+  timestamp: string;
+  success: number;
+  responseTimeMs: number;
+  proxyTimeMs: number;
+  statusCode?: number;
+  totalTokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string | null;
+}) {
+  db.prepare(
+    `
+      INSERT INTO requests (
+        api_key_id, timestamp, method, path, status_code, success, response_time_ms, proxy_time_ms,
+        prompt_tokens, completion_tokens, total_tokens,
+        model_requested, model_used, error_message, ip_address, host
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  ).run(
+    input.apiKeyId,
+    input.timestamp,
+    "POST",
+    "/api/v1/chat/completions",
+    input.statusCode ?? (input.success === 1 ? 200 : 500),
+    input.success,
+    input.responseTimeMs,
+    input.proxyTimeMs,
+    input.promptTokens ?? 0,
+    input.completionTokens ?? 0,
+    input.totalTokens ?? 0,
+    "ignored",
+    "gpt-5-mini",
+    input.errorMessage ?? null,
+    "127.0.0.1",
+    "localhost",
+  );
+}
+
+function getZonedBucketParts(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  const values = Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+  return {
+    year: String(values.year),
+    month: String(values.month),
+    day: String(values.day),
+    hour: String(values.hour),
+  };
+}
+
+function toFourHourBucket(timestamp: string, timeZone: string) {
+  const parts = getZonedBucketParts(new Date(timestamp), timeZone);
+  const flooredHour = Math.floor(Number(parts.hour) / 4) * 4;
+  return `${parts.year}-${parts.month}-${parts.day} ${String(flooredHour).padStart(2, "0")}:00:00`;
+}
 
 describe("stats routes", () => {
   const app = createApp();
@@ -63,6 +130,14 @@ describe("stats routes", () => {
     expect(res.body.summary.totalCalls).toBeGreaterThan(0);
   });
 
+  it("keeps 24h overview totals aligned with the chart buckets", async () => {
+    const res = await request(app).get("/api/admin/overview?window=24h&timezone=UTC").expect(200);
+    const timelineCalls = res.body.timeline.reduce((sum: number, point: { calls: number }) => sum + point.calls, 0);
+
+    expect(res.body.timeline).toHaveLength(24);
+    expect(timelineCalls).toBe(res.body.summary.totalCalls);
+  });
+
   // ── Key stats ─────────────────────────────────────────────────────────
   it("returns key stats with p-values and errors list", async () => {
     const res = await request(app).get(`/api/admin/keys/${keyId}/stats?window=24h`).expect(200);
@@ -75,6 +150,64 @@ describe("stats routes", () => {
     expect(Array.isArray(res.body.timeline)).toBe(true);
     expect(Array.isArray(res.body.recentErrors)).toBe(true);
     expect(res.body.item).toBeDefined();
+  });
+
+  it("calculates average latencies from successful requests only", async () => {
+    const created = await request(app).post("/api/admin/keys").send({ name: "Success Only Stats", model: "gpt-5-mini" }).expect(201);
+    const timestamp = new Date().toISOString();
+
+    insertSyntheticRequest({
+      apiKeyId: created.body.item.id,
+      timestamp,
+      success: 1,
+      responseTimeMs: 120,
+      proxyTimeMs: 40,
+      totalTokens: 12,
+    });
+    insertSyntheticRequest({
+      apiKeyId: created.body.item.id,
+      timestamp,
+      success: 0,
+      responseTimeMs: 9000,
+      proxyTimeMs: 5000,
+      totalTokens: 0,
+      errorMessage: "synthetic failure",
+    });
+
+    const res = await request(app).get(`/api/admin/keys/${created.body.item.id}/stats?window=24h&timezone=UTC`).expect(200);
+    const timelineCalls = res.body.timeline.reduce((sum: number, point: { calls: number }) => sum + point.calls, 0);
+
+    expect(res.body.timeline).toHaveLength(24);
+    expect(res.body.stats.totalCalls).toBe(2);
+    expect(res.body.stats.successRate).toBe(50);
+    expect(res.body.stats.avgProxyTime).toBe(40);
+    expect(res.body.stats.avgResponseTime).toBe(120);
+    expect(timelineCalls).toBe(2);
+  });
+
+  it("builds 7d buckets in the requested timezone", async () => {
+    const created = await request(app).post("/api/admin/keys").send({ name: "Timezone Stats", model: "gpt-5-mini" }).expect(201);
+    const timeZone = "America/Halifax";
+    const timestamp = new Date().toISOString();
+    const expectedBucket = toFourHourBucket(timestamp, timeZone);
+
+    insertSyntheticRequest({
+      apiKeyId: created.body.item.id,
+      timestamp,
+      success: 1,
+      responseTimeMs: 250,
+      proxyTimeMs: 90,
+      totalTokens: 20,
+    });
+
+    const res = await request(app)
+      .get(`/api/admin/keys/${created.body.item.id}/stats?window=7d&timezone=${encodeURIComponent(timeZone)}`)
+      .expect(200);
+
+    expect(res.body.timeline).toHaveLength(42);
+    expect(res.body.timeline.reduce((sum: number, point: { calls: number }) => sum + point.calls, 0)).toBe(1);
+    expect(res.body.timeline.some((point: { calls: number }) => point.calls === 0)).toBe(true);
+    expect(res.body.timeline.find((point: { bucket: string; calls: number }) => point.bucket === expectedBucket)?.calls).toBe(1);
   });
 
   it("returns all-time stats for soft-deleted key", async () => {
