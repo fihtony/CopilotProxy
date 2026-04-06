@@ -20,5 +20,6 @@ logs/
 *.pids
 docs/
 !docs/images/
+tests/live/
 
 

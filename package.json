@@ -5,6 +5,7 @@
   "license": "MIT",
   "author": "Tony Xu <tony@tarch.ca>",
   "private": true,
+  "type": "module",
   "workspaces": [
     "server",
     "ui"
@@ -18,7 +19,8 @@
     "test": "npm run test:api && npm run test:e2e",
     "test:api": "npm run test -w server",
     "test:api:live": "npm run test:live -w server",
-    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "test:live": "node --experimental-strip-types tests/live/live.ts"
   },
   "overrides": {
     "path-to-regexp": "^8.4.2",
