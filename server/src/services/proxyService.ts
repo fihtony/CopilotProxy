@@ -1,6 +1,17 @@
 import axios from "axios";
 import type { Readable } from "stream";
 
+/**
+ * Returns the upstream request timeout in milliseconds.
+ * Read from process.env at call-time so tests can override it without module reload.
+ * Default: 300 000 ms (5 minutes). Each received data chunk resets the Node.js socket
+ * idle timer, so long but active streaming responses are not affected.
+ */
+export function getProxyTimeoutMs(): number {
+  const fromEnv = Number(process.env.PROXY_TIMEOUT_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 300_000;
+}
+
 // Forwards to the provided baseURL (real Copilot Connect :1288 in bridge or echo mode).
 // The proxy itself has no knowledge of whether the upstream is real or mocked.
 export async function proxyRequest(baseURL: string, path: string, body: Record<string, unknown> | undefined, modelOverride: string) {
@@ -13,6 +24,7 @@ export async function proxyRequest(baseURL: string, path: string, body: Record<s
     headers: { "Content-Type": "application/json" },
     maxRedirects: 0,
     validateStatus: () => true,
+    timeout: getProxyTimeoutMs(),
   });
   return { status: response.status, data: response.data };
 }
@@ -44,6 +56,7 @@ export async function proxyRequestStreaming(
     maxRedirects: 0,
     responseType: "stream",
     validateStatus: () => true,
+    timeout: getProxyTimeoutMs(),
   });
   return { status: response.status as number, stream: response.data as Readable };
 }

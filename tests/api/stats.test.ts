@@ -237,4 +237,76 @@ describe("stats routes", () => {
     const history = await request(app).get(`/api/admin/keys/${keyId}/history?page=1&limit=1`).expect(200);
     expect(history.body.items[0].proxy_time_ms).toBeGreaterThanOrEqual(0);
   });
+
+  // ── Response time averages: successful requests only ─────────────────
+  it("overview avgResponseTime and avgProxyTime exclude failed requests", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Overview Avg Time Key", model: "gpt-5-mini" })
+      .expect(201);
+    const ts = new Date().toISOString();
+
+    // One successful request
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 200, proxyTimeMs: 50 });
+    // Two failed requests with very high times (simulate timeouts)
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 0, responseTimeMs: 300_000, proxyTimeMs: 0, statusCode: 504, errorMessage: "timeout" });
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 0, responseTimeMs: 50_000, proxyTimeMs: 0, statusCode: 502, errorMessage: "conn refused" });
+
+    const overview = await request(app).get("/api/admin/overview?window=24h&timezone=UTC").expect(200);
+
+    // Find this key in the per-key summaries
+    const keySummary = overview.body.keySummaries.find((k: { id: number }) => k.id === created.body.item.id);
+    expect(keySummary).toBeDefined();
+    // Only the 200ms successful request counts
+    expect(keySummary.avgResponseTime).toBe(200);
+    expect(keySummary.avgProxyTime).toBe(50);
+  });
+
+  it("key list (GET /api/admin/keys) avgResponseTime excludes failed requests", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "List Avg Time Key", model: "gpt-5-mini" })
+      .expect(201);
+    const ts = new Date().toISOString();
+
+    // Successful request: 100 ms
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 100, proxyTimeMs: 20 });
+    // Failed request: 300 000 ms (would dominate if included)
+    insertSyntheticRequest({
+      apiKeyId: created.body.item.id,
+      timestamp: ts,
+      success: 0,
+      responseTimeMs: 300_000,
+      proxyTimeMs: 0,
+      statusCode: 504,
+      errorMessage: "timeout",
+    });
+
+    const list = await request(app).get("/api/admin/keys").expect(200);
+    const keyInList = list.body.items.find((k: { id: number }) => k.id === created.body.item.id);
+    expect(keyInList).toBeDefined();
+    // avgResponseTime must reflect only the 100 ms successful request
+    expect(keyInList.avgResponseTime).toBe(100);
+  });
+
+  it("timeline buckets avgResponseTime and avgProxyTime exclude failed requests", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Timeline Avg Time Key", model: "gpt-5-mini" })
+      .expect(201);
+    const ts = new Date().toISOString();
+
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 80, proxyTimeMs: 10 });
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 0, responseTimeMs: 120_000, proxyTimeMs: 0, statusCode: 504, errorMessage: "timeout" });
+
+    const res = await request(app)
+      .get(`/api/admin/keys/${created.body.item.id}/stats?window=24h&timezone=UTC`)
+      .expect(200);
+
+    // Find the non-empty bucket
+    const activeBucket = res.body.timeline.find((b: { calls: number }) => b.calls > 0);
+    expect(activeBucket).toBeDefined();
+    expect(activeBucket.avgResponseTime).toBe(80);
+    expect(activeBucket.avgProxyTime).toBe(10);
+  });
 });

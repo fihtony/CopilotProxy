@@ -4,6 +4,7 @@ import { clientRateLimit } from "../middleware/rateLimiters.js";
 import { proxyRequest, proxyRequestStreaming } from "../services/proxyService.js";
 import { recordRequest } from "../services/statsService.js";
 import { getCachedSettings } from "../services/settingsService.js";
+import type { RequestLogRecord } from "../types.js";
 
 const router = Router();
 
@@ -52,19 +53,29 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
   const copilotUrl = getCachedSettings().copilot_url;
   const { clientIp, clientHost } = extractClientInfo(req);
 
+  // Guard: prevent double-logging when multiple completion events race
+  // (e.g., stream "end" fires and then res "close" fires in quick succession).
+  let requestRecorded = false;
+  function recordOnce(record: RequestLogRecord) {
+    if (requestRecorded) return;
+    requestRecorded = true;
+    recordRequest(record);
+  }
+
   let upstream: Awaited<ReturnType<typeof proxyRequestStreaming>>;
   try {
     upstream = await proxyRequestStreaming(copilotUrl, path, req.body as Record<string, unknown>, modelUsed);
   } catch (error) {
     const totalElapsed = Date.now() - startedAt;
-    recordRequest({
+    const isTimeout = error instanceof Error && (error as NodeJS.ErrnoException).code === "ECONNABORTED";
+    recordOnce({
       apiKeyId: req.apiKey!.id,
       method: req.method,
       path: logPath,
-      statusCode: 502,
+      statusCode: isTimeout ? 504 : 502,
       success: 0,
       responseTimeMs: totalElapsed,
-      proxyTimeMs: totalElapsed,
+      proxyTimeMs: 0,
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
@@ -74,7 +85,9 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
       ipAddress: clientIp,
       host: clientHost,
     });
-    return res.status(502).json({ error: { message: "Upstream connection failed" } });
+    return res
+      .status(isTimeout ? 504 : 502)
+      .json({ error: { message: isTimeout ? "Upstream request timed out" : "Upstream connection failed" } });
   }
 
   // Non-200 upstream errors are JSON, not SSE — forward them as-is.
@@ -83,7 +96,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     upstream.stream.on("data", (chunk: Buffer) => (errorBody += chunk.toString("utf8")));
     upstream.stream.on("end", () => {
       const totalElapsed = Date.now() - startedAt;
-      recordRequest({
+      recordOnce({
         apiKeyId: req.apiKey!.id,
         method: req.method,
         path: logPath,
@@ -129,7 +142,7 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     res.end();
     const totalElapsed = Date.now() - startedAt;
     const usage = parseUsageFromTail(tailBuffer);
-    recordRequest({
+    recordOnce({
       apiKeyId: req.apiKey!.id,
       method: req.method,
       path: logPath,
@@ -149,13 +162,14 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
   });
 
   upstream.stream.on("error", (err: Error) => {
-    res.end();
+    if (!res.writableEnded) res.end();
     const totalElapsed = Date.now() - startedAt;
-    recordRequest({
+    const isTimeout = (err as NodeJS.ErrnoException).code === "ECONNABORTED";
+    recordOnce({
       apiKeyId: req.apiKey!.id,
       method: req.method,
       path: logPath,
-      statusCode: 502,
+      statusCode: isTimeout ? 504 : 502,
       success: 0,
       responseTimeMs: totalElapsed,
       proxyTimeMs: preUpstreamMs,
@@ -170,8 +184,31 @@ async function handleStreamingProxy(req: Request, res: Response, path: string) {
     });
   });
 
-  // Clean up the upstream stream if the client disconnects early.
-  res.on("close", () => upstream.stream.destroy());
+  // When the client disconnects mid-stream: destroy the upstream connection and
+  // record the request as cancelled (HTTP 499 — "Client Closed Request", nginx conv.).
+  // stream.destroy() without an argument emits "close" but NOT "error" or "end",
+  // so without this handler the request would be silently dropped from the log.
+  res.on("close", () => {
+    upstream.stream.destroy();
+    const totalElapsed = Date.now() - startedAt;
+    recordOnce({
+      apiKeyId: req.apiKey!.id,
+      method: req.method,
+      path: logPath,
+      statusCode: 499,
+      success: 0,
+      responseTimeMs: totalElapsed,
+      proxyTimeMs: preUpstreamMs,
+      promptTokens: null,
+      completionTokens: null,
+      totalTokens: null,
+      modelRequested: requestedModel,
+      modelUsed,
+      errorMessage: "Client disconnected",
+      ipAddress: clientIp,
+      host: clientHost,
+    });
+  });
 }
 
 async function handleProxy(req: Request, res: Response, path: string) {
@@ -220,14 +257,15 @@ async function handleProxy(req: Request, res: Response, path: string) {
     return res.status(upstream.status).json(upstream.data);
   } catch (error) {
     const totalElapsed = Date.now() - startedAt;
+    const isTimeout = error instanceof Error && (error as NodeJS.ErrnoException).code === "ECONNABORTED";
     recordRequest({
       apiKeyId: req.apiKey!.id,
       method: req.method,
       path: logPath,
-      statusCode: 502,
+      statusCode: isTimeout ? 504 : 502,
       success: 0,
       responseTimeMs: totalElapsed,
-      proxyTimeMs: totalElapsed,
+      proxyTimeMs: 0,
       promptTokens: null,
       completionTokens: null,
       totalTokens: null,
@@ -238,7 +276,9 @@ async function handleProxy(req: Request, res: Response, path: string) {
       host: clientHost,
     });
 
-    return res.status(502).json({ error: { message: "Upstream request failed" } });
+    return res
+      .status(isTimeout ? 504 : 502)
+      .json({ error: { message: isTimeout ? "Upstream request timed out" : "Upstream request failed" } });
   }
 }
 

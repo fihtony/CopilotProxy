@@ -142,7 +142,7 @@ export function listApiKeys(search?: string, sortBy?: string, sortDir?: string) 
     SELECT api_keys.*,
       COUNT(requests.id) AS totalCalls,
       ROUND(COALESCE(AVG(requests.success), 0) * 100, 2) AS successRate,
-      ROUND(COALESCE(AVG(requests.response_time_ms), 0), 2) AS avgResponseTime,
+      ROUND(COALESCE(AVG(CASE WHEN requests.success = 1 THEN requests.response_time_ms END), 0), 2) AS avgResponseTime,
       MAX(requests.timestamp) AS last_used_at
     FROM api_keys
     LEFT JOIN requests ON requests.api_key_id = api_keys.id
