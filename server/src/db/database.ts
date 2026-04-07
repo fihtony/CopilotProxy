@@ -54,6 +54,7 @@ seedSettings.run("copilot_url", config.copilotUrl, now);
 seedSettings.run("default_model", "gpt-5-mini", now);
 seedSettings.run("dashboard_time_window", "24h", now);
 seedSettings.run("key_detail_time_window", "24h", now);
+seedSettings.run("auto_refresh_interval", "30", now);
 
 // ── Settings helpers ────────────────────────────────────────────────────────
 export function getSettingsFromDb(): SettingsRecord {
@@ -64,6 +65,7 @@ export function getSettingsFromDb(): SettingsRecord {
     default_model: map.default_model ?? "gpt-5-mini",
     dashboard_time_window: (map.dashboard_time_window as TimeWindow | undefined) ?? "24h",
     key_detail_time_window: (map.key_detail_time_window as TimeWindow | undefined) ?? "24h",
+    auto_refresh_interval: map.auto_refresh_interval ?? "30",
   };
 }
 
@@ -76,6 +78,7 @@ export function updateSettingsInDb(patch: Partial<SettingsRecord>) {
   if (patch.default_model !== undefined) upsert.run("default_model", patch.default_model, ts);
   if (patch.dashboard_time_window !== undefined) upsert.run("dashboard_time_window", patch.dashboard_time_window, ts);
   if (patch.key_detail_time_window !== undefined) upsert.run("key_detail_time_window", patch.key_detail_time_window, ts);
+  if (patch.auto_refresh_interval !== undefined) upsert.run("auto_refresh_interval", patch.auto_refresh_interval, ts);
 }
 
 // ── API Key helpers ─────────────────────────────────────────────────────────

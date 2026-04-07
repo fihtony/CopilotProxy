@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient, type ApiKeyItem, type HealthCheckResponse, type SettingsResponse } from "../api/client";
 import { Modal } from "../components/Modal";
 import { formatDateTime } from "../utils/dateFormatter";
+import { isPermissionDeniedError } from "../utils/errorHandler";
 
 interface CreateResponse {
   item: ApiKeyItem;
@@ -37,22 +38,42 @@ export function KeysManage() {
   // Delete modal
   const [deleteItem, setDeleteItem] = useState<ApiKeyItem | null>(null);
 
+  // Permission denied modal
+  const [showPermissionDenied, setShowPermissionDenied] = useState(false);
+
   // Restore scroll position on mount, and fetch default model for highlight
   useEffect(() => {
+    let cancelled = false;
+
     window.scrollTo(0, 0);
     apiClient
       .get<SettingsResponse>("/settings")
-      .then((r) => setDefaultModel(r.data.default_model))
+      .then((r) => {
+        if (cancelled) {
+          return;
+        }
+
+        setDefaultModel(r.data.default_model);
+      })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const r = await apiClient.get<{ items: ApiKeyItem[] }>(
-      `/keys?search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortDir=${sortDir}`,
-    );
-    setItems(r.data.items);
-    setIsLoading(false);
+    try {
+      const response = await apiClient.get<{ items: ApiKeyItem[] }>(
+        `/keys?search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortDir=${sortDir}`,
+      );
+      setItems(response.data.items);
+    } catch {
+      // Keep the current list visible if a refresh fails.
+    } finally {
+      setIsLoading(false);
+    }
   }, [search, sortBy, sortDir]);
 
   // Debounce the load call to avoid rapid-fire requests on every keystroke
@@ -102,8 +123,12 @@ export function KeysManage() {
     try {
       const r = await apiClient.post<CreateResponse>("/keys", { name: createName.trim(), model: createModel || undefined });
       setCreatedKey(r.data.rawKey);
-    } catch {
-      setCreateError("Failed to create key. Please try again.");
+    } catch (error) {
+      if (isPermissionDeniedError(error)) {
+        setShowPermissionDenied(true);
+      } else {
+        setCreateError("Failed to create key. Please try again.");
+      }
     }
   }
 
@@ -114,16 +139,28 @@ export function KeysManage() {
 
   async function handleEdit() {
     if (!editItem) return;
-    await apiClient.patch(`/keys/${editItem.id}`, { name: editName, model: editModel });
-    setEditItem(null);
-    await load();
+    try {
+      await apiClient.patch(`/keys/${editItem.id}`, { name: editName, model: editModel });
+      setEditItem(null);
+      await load();
+    } catch (error) {
+      if (isPermissionDeniedError(error)) {
+        setShowPermissionDenied(true);
+      }
+    }
   }
 
   async function handleDelete() {
     if (!deleteItem) return;
-    await apiClient.delete(`/keys/${deleteItem.id}`);
-    setDeleteItem(null);
-    await load();
+    try {
+      await apiClient.delete(`/keys/${deleteItem.id}`);
+      setDeleteItem(null);
+      await load();
+    } catch (error) {
+      if (isPermissionDeniedError(error)) {
+        setShowPermissionDenied(true);
+      }
+    }
   }
 
   function handleSort(col: string) {
@@ -399,6 +436,14 @@ export function KeysManage() {
           </button>
           <button onClick={() => setDeleteItem(null)}>Cancel</button>
         </div>
+      </Modal>
+
+      {/* Permission Denied Modal */}
+      <Modal open={showPermissionDenied} title="Permission Denied" onClose={() => setShowPermissionDenied(false)}>
+        <p>You don't have permission to complete this operation.</p>
+        <button onClick={() => setShowPermissionDenied(false)} style={{ marginTop: "1rem" }}>
+          OK
+        </button>
       </Modal>
     </div>
   );

@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiClient, buildStatsQuery, type KeyStatsResponse, type TimeWindowValue } from "../api/client";
+import {
+  apiClient,
+  buildStatsQuery,
+  type KeyStatsResponse,
+  type TimeWindowValue,
+  type AutoRefreshInterval,
+  type SettingsResponse,
+} from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
 import { RequestTable, type RequestItem } from "../components/RequestTable";
 import { formatDateTime } from "../utils/dateFormatter";
 import { formatLatencyMs } from "../utils/timelineUtils";
 import { readTimeWindowPreference, saveTimeWindowPreference } from "../utils/timeWindowPreferences";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
@@ -18,6 +26,7 @@ export function KeyDetail() {
   const [data, setData] = useState<KeyStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [history, setHistory] = useState<RequestItem[]>([]);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -43,22 +52,61 @@ export function KeyDetail() {
   }, []);
 
   useEffect(() => {
-    if (!timeWindowReady) {
+    let cancelled = false;
+
+    apiClient
+      .get<SettingsResponse>("/settings")
+      .then((r) => {
+        if (cancelled) {
+          return;
+        }
+
+        const raw: AutoRefreshInterval = r.data.auto_refresh_interval ?? "30";
+        setAutoRefreshInterval(raw === "never" ? "never" : Number(raw));
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAutoRefreshInterval(30);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    if (!timeWindowReady || !id) {
       return;
     }
-    if (!id) {
-      setIsLoading(false);
-      return;
-    }
+
     setIsLoading(true);
-    apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`).then((r) => {
-      setData(r.data);
+    try {
+      const response = await apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`);
+      setData(response.data);
+    } catch {
+      // Keep the last loaded key data visible if a refresh fails.
+    } finally {
       setIsLoading(false);
-    });
+    }
   }, [id, timeWindow, timeWindowReady]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  const resetRefreshTimer = useAutoRefresh(autoRefreshInterval, loadStats);
+
+  async function handleManualRefresh() {
+    await loadStats();
+    resetRefreshTimer();
+  }
 
   async function handleTimeWindowChange(nextWindow: TimeWindowValue) {
     setTimeWindow(nextWindow);
+    resetRefreshTimer();
     try {
       await saveTimeWindowPreference("key_detail_time_window", nextWindow);
     } catch {
@@ -67,10 +115,18 @@ export function KeyDetail() {
   }
 
   useEffect(() => {
-    if (!id) return;
-    apiClient.get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`).then((r) => {
-      setHistory(r.data.items);
-    });
+    if (!id) {
+      return;
+    }
+
+    apiClient
+      .get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`)
+      .then((r) => {
+        setHistory(r.data.items);
+      })
+      .catch(() => {
+        // Keep the current request history visible if a refresh fails.
+      });
   }, [id]);
 
   const handleBack = () => {
@@ -150,12 +206,24 @@ export function KeyDetail() {
           </div>
         </div>
         {!isDeleted && timeWindowReady && (
-          <div className="segmented-control">
-            {windows.map((w) => (
-              <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => void handleTimeWindowChange(w)}>
-                {w}
-              </button>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <button
+              className="btn-icon-refresh"
+              onClick={() => {
+                void handleManualRefresh();
+              }}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              ↻
+            </button>
+            <div className="segmented-control">
+              {windows.map((w) => (
+                <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => void handleTimeWindowChange(w)}>
+                  {w}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

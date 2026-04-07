@@ -7,6 +7,7 @@ let cached: SettingsRecord = {
   default_model: "gpt-5-mini",
   dashboard_time_window: "24h",
   key_detail_time_window: "24h",
+  auto_refresh_interval: "30",
 };
 
 function refreshSettings(): SettingsRecord {

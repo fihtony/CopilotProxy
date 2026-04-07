@@ -31,6 +31,19 @@ DATABASE_PATH=${DATABASE_PATH:-"./data/copilot-proxy.db"}
 # Set NODE_ENV based on mode
 NODE_ENV=$([[ "$MODE" == "dev" ]] && echo "development" || echo "production")
 
+# ── Dev mode: LOCAL_BYPASS_OAUTH_ALLOWED in .env ────────────────────────────
+# The server reads this flag directly from .env on every write operation.
+# Setting it only as a shell variable is not sufficient (by design).
+# If not set to true, all write operations will be blocked with a permission error.
+DEV_BYPASS_ENABLED="false"
+if [[ "$MODE" == "dev" ]]; then
+  if [[ "${LOCAL_BYPASS_OAUTH_ALLOWED}" == "true" ]]; then
+    DEV_BYPASS_ENABLED="true"
+  elif [[ -z "${LOCAL_BYPASS_OAUTH_ALLOWED}" ]]; then
+    echo "⚠️  Warning: LOCAL_BYPASS_OAUTH_ALLOWED not set in .env (or not found)"
+  fi
+fi
+
 # Convert DATABASE_PATH to absolute path from project root
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 if [[ "$DATABASE_PATH" != /* ]]; then
@@ -48,8 +61,8 @@ mkdir -p "$DATA_DIR" || {
 > "$PIDS_FILE"
 mkdir -p logs
 
-MODE_LABEL=$([[ "$MODE" == "dev" ]] && echo "DEVELOPMENT (no auth required)" || echo "PRODUCTION (auth required)")
-AUTH_LABEL=$([[ "$MODE" == "dev" ]] && echo "DISABLED (CF-Access-JWT-Assertion not required)" || echo "ENABLED (CF-Access-JWT-Assertion required)")
+MODE_LABEL=$([[ "$MODE" == "dev" ]] && echo "DEVELOPMENT (LOCAL_BYPASS_OAUTH_ALLOWED=true)" || echo "PRODUCTION (auth required)")
+AUTH_LABEL=$([[ "$MODE" == "dev" ]] && echo "BYPASSED via LOCAL_BYPASS_OAUTH_ALLOWED=true in .env" || echo "ENABLED (CF-Access-JWT-Assertion required)")
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║         Copilot Proxy — Starting in $MODE_LABEL           "
@@ -123,8 +136,14 @@ echo "║   Client API (proxy)    →  http://localhost:${CLIENT_PORT}   ║"
 echo "║   Admin UI              →  http://localhost:${UI_PORT}       ║"
 echo "║                                                               ║"
 if [[ "$MODE" == "dev" ]]; then
-  echo "║  DEV MODE: Admin API (/api/admin/*) is OPEN (no auth required)     ║"
-  echo "║     - /api/v1/* endpoints still require API key authentication   ║"
+  if [[ "$DEV_BYPASS_ENABLED" == "true" ]]; then
+    echo "║  DEV MODE: Auth bypass ENABLED (LOCAL_BYPASS_OAUTH_ALLOWED=true)      ║"
+    echo "║     - Write operations allowed. /api/v1/* require API key auth.   ║"
+  else
+    echo "║  ⚠️  DEV MODE: Auth bypass DISABLED (LOCAL_BYPASS_OAUTH_ALLOWED not set)   ║"
+    echo "║     - Write operations will be BLOCKED with permission error      ║"
+    echo "║     - Set LOCAL_BYPASS_OAUTH_ALLOWED=true in .env to enable      ║"
+  fi
 else
   echo "║  PROD MODE: Admin API (/api/admin/*) requires Cloudflare Access    ║"
   echo "║     - CF-Access-JWT-Assertion header required                ║"

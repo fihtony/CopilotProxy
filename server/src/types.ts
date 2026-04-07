@@ -44,4 +44,5 @@ export interface SettingsRecord {
   default_model: string;
   dashboard_time_window: TimeWindow;
   key_detail_time_window: TimeWindow;
+  auto_refresh_interval: string;
 }

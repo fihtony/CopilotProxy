@@ -6,6 +6,7 @@ import { createApiKeyRecord, softDeleteApiKey, getApiKeyById, listApiKeys, updat
 import { readKeyHistory, readKeyStats, readOverview } from "../services/statsService.js";
 import { getSettings, updateSettings } from "../services/settingsService.js";
 import { validateCopilotUrl } from "../services/copilotUrlPolicy.js";
+import { requireLocalBypassForWrite } from "../middleware/cloudflareAuth.js";
 import type { TimeWindow } from "../types.js";
 
 const router = Router();
@@ -42,6 +43,7 @@ const settingsSchema = z.object({
   default_model: z.string().min(1).max(255).optional(),
   dashboard_time_window: timeWindowSchema.optional(),
   key_detail_time_window: timeWindowSchema.optional(),
+  auto_refresh_interval: z.enum(["15", "30", "60", "180", "300", "900", "1800", "never"]).optional(),
 });
 
 const healthCheckSchema = z.object({
@@ -86,7 +88,7 @@ router.get("/keys", (req, res) => {
   res.json({ items: listApiKeys(search, sortBy, sortDir) });
 });
 
-router.post("/keys", (req, res) => {
+router.post("/keys", requireLocalBypassForWrite, (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -105,7 +107,7 @@ router.post("/keys", (req, res) => {
   res.status(201).json({ item: record, rawKey });
 });
 
-router.patch("/keys/:id", (req, res) => {
+router.patch("/keys/:id", requireLocalBypassForWrite, (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -119,7 +121,7 @@ router.patch("/keys/:id", (req, res) => {
   res.json({ item: updated });
 });
 
-router.delete("/keys/:id", (req, res) => {
+router.delete("/keys/:id", requireLocalBypassForWrite, (req, res) => {
   const changes = softDeleteApiKey(Number(req.params.id));
   if (changes === 0) {
     return res.status(404).json({ error: { message: "API key not found" } });
@@ -162,7 +164,7 @@ router.get("/settings", (_req, res) => {
   res.json(getSettings());
 });
 
-router.put("/settings", (req, res) => {
+router.put("/settings", requireLocalBypassForWrite, (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -181,7 +183,7 @@ router.get("/health/copilot", async (_req, res) => {
 });
 
 // POST: accepts copilot_url in body for testing an unsaved URL
-router.post("/health/copilot", async (req, res) => {
+router.post("/health/copilot", requireLocalBypassForWrite, async (req, res) => {
   const parsed = healthCheckSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

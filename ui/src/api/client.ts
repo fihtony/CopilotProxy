@@ -114,11 +114,14 @@ export interface KeyStatsResponse {
   }>;
 }
 
+export type AutoRefreshInterval = "15" | "30" | "60" | "180" | "300" | "900" | "1800" | "never";
+
 export interface SettingsResponse {
   copilot_url: string;
   default_model: string;
   dashboard_time_window: TimeWindowValue;
   key_detail_time_window: TimeWindowValue;
+  auto_refresh_interval: AutoRefreshInterval;
 }
 
 export interface HealthCheckResponse {

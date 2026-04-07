@@ -3,19 +3,20 @@
  *
  * Tests the JWT extraction logic and middleware behavior for the admin app /api/* routes.
  * - extractUserFromJwt(): Unit tests for JWT payload decoding
+ * - readLocalBypassAllowed(): Unit tests for the .env file bypass check
  * - cloudflareAuthMiddleware: Integration tests for Cloudflare Access integration
  *
- * In development (NODE_ENV !== "production"):
+ * Bypass behaviour (readLocalBypassAllowed):
+ *   NODE_ENV === "test"        → always true (automated tests never need a .env)
+ *   NODE_ENV === "production"  → always false (no bypass path exists)
+ *   NODE_ENV === "development" → true only when .env file contains LOCAL_BYPASS_OAUTH_ALLOWED=true
+ *
+ * In test environment (NODE_ENV === "test"):
  *   - Middleware attaches LOCAL_ADMIN_USER: { name: "Local", email: "admin@localhost.com" }
  *   - Tests override to { name: "Test User", email: "test@localhost.com" } in beforeAll()
- *
- * In production (NODE_ENV === "production"):
- *   - Middleware requires CF-Access-JWT-Assertion header
- *   - JWT is decoded (without sig verification — CF validates at edge)
- *   - User extracted from JWT payload: { name, email }
  */
 
-import { extractUserFromJwt, LOCAL_ADMIN_USER } from "../../server/src/middleware/cloudflareAuth.js";
+import { extractUserFromJwt, readLocalBypassAllowed, LOCAL_ADMIN_USER } from "../../server/src/middleware/cloudflareAuth.js";
 import request from "supertest";
 import { createApp } from "../../server/src/app.js";
 
@@ -67,6 +68,16 @@ describe("extractUserFromJwt", () => {
     expect(user).not.toBeNull();
     expect(user!.email).toBe("unknown@localhost");
     expect(user!.name).toBe("unknown");
+  });
+});
+
+// ── Unit tests: readLocalBypassAllowed ──────────────────────────────────────
+
+describe("readLocalBypassAllowed", () => {
+  it("returns true in test environment (NODE_ENV === 'test') without any .env file", () => {
+    // Tests always bypass auth so they can run without a .env file.
+    expect(process.env.NODE_ENV).toBe("test");
+    expect(readLocalBypassAllowed()).toBe(true);
   });
 });
 

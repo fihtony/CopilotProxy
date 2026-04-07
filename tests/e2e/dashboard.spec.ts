@@ -37,6 +37,7 @@ test("TC-UI-01/07/08: renders dashboard metrics and key detail timeline", async 
   await expect(page.getByText("Avg Proxy Latency", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Avg Response Time", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Avg Tokens", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
 
   // Health indicator should be present
   await expect(page.getByTestId("health-indicator")).toBeVisible();
@@ -50,6 +51,7 @@ test("TC-UI-01/07/08: renders dashboard metrics and key detail timeline", async 
   await page.goto(`/keys/${keyId}`);
   await expect(page.getByText("Key Dashboard")).toBeVisible();
   await expect(page.getByTestId("timeline-chart").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
 });
 
 test("TC-UI-04: back navigation from key detail returns to key management", async ({ page }) => {
@@ -72,6 +74,7 @@ test("highlights the saved dashboard time window on entry", async ({ page }) => 
         default_model: "gpt-5-mini",
         dashboard_time_window: "30d",
         key_detail_time_window: "24h",
+        auto_refresh_interval: "never",
       },
     });
   });
@@ -115,6 +118,7 @@ test("highlights the saved API key time window on entry", async ({ page }) => {
         default_model: "gpt-5-mini",
         dashboard_time_window: "24h",
         key_detail_time_window: "7d",
+        auto_refresh_interval: "never",
       },
     });
   });

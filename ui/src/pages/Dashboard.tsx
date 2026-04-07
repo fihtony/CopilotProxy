@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiClient, buildStatsQuery, type OverviewResponse, type TimeWindowValue } from "../api/client";
+import {
+  apiClient,
+  buildStatsQuery,
+  type OverviewResponse,
+  type TimeWindowValue,
+  type AutoRefreshInterval,
+  type SettingsResponse,
+} from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
 import { formatDate } from "../utils/dateFormatter";
 import { HealthIndicator } from "../components/HealthIndicator";
 import { formatLatencyMs } from "../utils/timelineUtils";
 import { readTimeWindowPreference, saveTimeWindowPreference } from "../utils/timeWindowPreferences";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
@@ -21,6 +29,7 @@ export function Dashboard() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showDeleted, setShowDeleted] = useState(false);
   const [showCustomModel, setShowCustomModel] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -46,18 +55,61 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    apiClient
+      .get<SettingsResponse>("/settings")
+      .then((r) => {
+        if (cancelled) {
+          return;
+        }
+
+        const raw: AutoRefreshInterval = r.data.auto_refresh_interval ?? "30";
+        setAutoRefreshInterval(raw === "never" ? "never" : Number(raw));
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAutoRefreshInterval(30);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadData = useCallback(async () => {
     if (!timeWindowReady) {
       return;
     }
+
     setIsLoading(true);
-    apiClient.get<OverviewResponse>(`/overview?${buildStatsQuery(timeWindow)}`).then((r) => {
-      setData(r.data);
+    try {
+      const response = await apiClient.get<OverviewResponse>(`/overview?${buildStatsQuery(timeWindow)}`);
+      setData(response.data);
+    } catch {
+      // Keep the previous snapshot visible if a background refresh fails.
+    } finally {
       setIsLoading(false);
-    });
+    }
   }, [timeWindow, timeWindowReady]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const resetRefreshTimer = useAutoRefresh(autoRefreshInterval, loadData);
+
+  async function handleManualRefresh() {
+    await loadData();
+    resetRefreshTimer();
+  }
 
   async function handleTimeWindowChange(nextWindow: TimeWindowValue) {
     setTimeWindow(nextWindow);
+    resetRefreshTimer();
     try {
       await saveTimeWindowPreference("dashboard_time_window", nextWindow);
     } catch {
@@ -136,6 +188,16 @@ export function Dashboard() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <HealthIndicator />
+          <button
+            className="btn-icon-refresh"
+            onClick={() => {
+              void handleManualRefresh();
+            }}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            ↻
+          </button>
           {timeWindowReady ? (
             <div className="segmented-control">
               {windows.map((item) => (
@@ -273,7 +335,7 @@ export function Dashboard() {
                 <td>
                   <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     {item.name}
-                    {item.isDeleted && <span className="badge-deleted">Deleted</span>}
+                    {!!item.isDeleted && <span className="badge-deleted">Deleted</span>}
                   </span>
                 </td>
                 <td>{item.keyPreview}</td>
