@@ -84,8 +84,12 @@ export function KeyDetail() {
 
     setIsLoading(true);
     try {
-      const response = await apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`);
-      setData(response.data);
+      const [statsResponse, historyResponse] = await Promise.all([
+        apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`),
+        apiClient.get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`),
+      ]);
+      setData(statsResponse.data);
+      setHistory(historyResponse.data.items);
     } catch {
       // Keep the last loaded key data visible if a refresh fails.
     } finally {
@@ -113,21 +117,6 @@ export function KeyDetail() {
       // Keep the selected window locally even if persistence fails.
     }
   }
-
-  useEffect(() => {
-    if (!id) {
-      return;
-    }
-
-    apiClient
-      .get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`)
-      .then((r) => {
-        setHistory(r.data.items);
-      })
-      .catch(() => {
-        // Keep the current request history visible if a refresh fails.
-      });
-  }, [id]);
 
   const handleBack = () => {
     // Try to restore scroll position from where we came
