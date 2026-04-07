@@ -84,12 +84,20 @@ export function KeyDetail() {
 
     setIsLoading(true);
     try {
-      const [statsResponse, historyResponse] = await Promise.all([
+      const [statsResult, historyResult] = await Promise.allSettled([
         apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`),
         apiClient.get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`),
       ]);
-      setData(statsResponse.data);
-      setHistory(historyResponse.data.items);
+
+      // Update stats if successful
+      if (statsResult.status === "fulfilled") {
+        setData(statsResult.value.data);
+      }
+
+      // Update history if successful
+      if (historyResult.status === "fulfilled") {
+        setHistory(historyResult.value.data.items);
+      }
     } catch {
       // Keep the last loaded key data visible if a refresh fails.
     } finally {
