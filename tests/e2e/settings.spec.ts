@@ -10,6 +10,7 @@ test.describe("Settings page", () => {
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
     await expect(page.getByTestId("settings-url")).toBeVisible();
+    await expect(page.getByTestId("settings-auto-refresh")).toBeVisible();
   });
 
   test("TC-SET-02: test connection shows model list", async ({ page }) => {
@@ -20,7 +21,38 @@ test.describe("Settings page", () => {
     await expect(page.getByTestId("test-result")).toBeVisible();
   });
 
-  test("TC-SET-03: updates settings via API", async ({ request }) => {
+  test("TC-SET-03: saves auto-refresh with a separate button", async ({ page, request }) => {
+    await expect.poll(async () => (await page.request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
+
+    const current = await request.get(`${ADMIN_URL}/api/admin/settings`);
+    const original = await current.json();
+    const nextInterval = original.auto_refresh_interval === "300" ? "900" : "300";
+
+    try {
+      await page.goto("/settings");
+
+      await expect(page.getByTestId("settings-save")).toBeDisabled();
+      await expect(page.getByTestId("settings-auto-refresh-save")).toBeDisabled();
+
+      await page.getByTestId("settings-auto-refresh").selectOption(nextInterval);
+
+      await expect(page.getByTestId("settings-auto-refresh-save")).toBeEnabled();
+      await expect(page.getByTestId("settings-save")).toBeDisabled();
+
+      await page.getByTestId("settings-auto-refresh-save").click();
+      await expect(page.getByText("Auto-refresh settings saved ✓")).toBeVisible();
+
+      const updated = await request.get(`${ADMIN_URL}/api/admin/settings`);
+      const updatedBody = await updated.json();
+      expect(updatedBody.auto_refresh_interval).toBe(nextInterval);
+    } finally {
+      await request.put(`${ADMIN_URL}/api/admin/settings`, {
+        data: { auto_refresh_interval: original.auto_refresh_interval ?? "30" },
+      });
+    }
+  });
+
+  test("TC-SET-04: updates settings via API", async ({ request }) => {
     // Read current
     const current = await request.get(`${ADMIN_URL}/api/admin/settings`);
     const original = await current.json();
@@ -39,7 +71,7 @@ test.describe("Settings page", () => {
     });
   });
 
-  test("TC-SET-04: rejects invalid URL in settings", async ({ request }) => {
+  test("TC-SET-05: rejects invalid URL in settings", async ({ request }) => {
     const res = await request.put(`${ADMIN_URL}/api/admin/settings`, {
       data: { copilot_url: "not-a-url" },
     });

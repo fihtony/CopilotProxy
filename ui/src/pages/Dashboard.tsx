@@ -1,16 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiClient, type OverviewResponse } from "../api/client";
+import {
+  apiClient,
+  buildStatsQuery,
+  type OverviewResponse,
+  type TimeWindowValue,
+  type AutoRefreshInterval,
+  type SettingsResponse,
+} from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
 import { formatDate } from "../utils/dateFormatter";
 import { HealthIndicator } from "../components/HealthIndicator";
+import { formatLatencyMs } from "../utils/timelineUtils";
+import { readTimeWindowPreference, saveTimeWindowPreference } from "../utils/timeWindowPreferences";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const [timeWindow, setTimeWindow] = useState<(typeof windows)[number]>("24h");
+  const [timeWindow, setTimeWindow] = useState<TimeWindowValue>("24h");
+  const [timeWindowReady, setTimeWindowReady] = useState(false);
   const [data, setData] = useState<OverviewResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -18,6 +29,7 @@ export function Dashboard() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showDeleted, setShowDeleted] = useState(false);
   const [showCustomModel, setShowCustomModel] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -25,12 +37,85 @@ export function Dashboard() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    readTimeWindowPreference("dashboard_time_window")
+      .then((savedWindow) => {
+        if (cancelled) return;
+        setTimeWindow(savedWindow);
+        setTimeWindowReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTimeWindowReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    apiClient
+      .get<SettingsResponse>("/settings")
+      .then((r) => {
+        if (cancelled) {
+          return;
+        }
+
+        const raw: AutoRefreshInterval = r.data.auto_refresh_interval ?? "30";
+        setAutoRefreshInterval(raw === "never" ? "never" : Number(raw));
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAutoRefreshInterval(30);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadData = useCallback(async () => {
+    if (!timeWindowReady) {
+      return;
+    }
+
     setIsLoading(true);
-    apiClient.get<OverviewResponse>(`/overview?window=${timeWindow}`).then((r) => {
-      setData(r.data);
+    try {
+      const response = await apiClient.get<OverviewResponse>(`/overview?${buildStatsQuery(timeWindow)}`);
+      setData(response.data);
+    } catch {
+      // Keep the previous snapshot visible if a background refresh fails.
+    } finally {
       setIsLoading(false);
-    });
-  }, [timeWindow]);
+    }
+  }, [timeWindow, timeWindowReady]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const resetRefreshTimer = useAutoRefresh(autoRefreshInterval, loadData);
+
+  async function handleManualRefresh() {
+    await loadData();
+    resetRefreshTimer();
+  }
+
+  async function handleTimeWindowChange(nextWindow: TimeWindowValue) {
+    setTimeWindow(nextWindow);
+    resetRefreshTimer();
+    try {
+      await saveTimeWindowPreference("dashboard_time_window", nextWindow);
+    } catch {
+      // Keep the chosen value locally even if persistence fails.
+    }
+  }
 
   const summary = data?.summary;
   const defaultModel = data?.defaultModel ?? "";
@@ -103,13 +188,25 @@ export function Dashboard() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <HealthIndicator />
-          <div className="segmented-control">
-            {windows.map((item) => (
-              <button key={item} className={item === timeWindow ? "active" : ""} onClick={() => setTimeWindow(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
+          <button
+            className="btn-icon-refresh"
+            onClick={() => {
+              void handleManualRefresh();
+            }}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            ↻
+          </button>
+          {timeWindowReady ? (
+            <div className="segmented-control">
+              {windows.map((item) => (
+                <button key={item} className={item === timeWindow ? "active" : ""} onClick={() => void handleTimeWindowChange(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -118,22 +215,21 @@ export function Dashboard() {
         <MetricCard label="Success Rate" value={`${summary?.successRate ?? 0}%`} />
         <MetricCard
           label="Avg Proxy Latency"
-          value={`${Math.round(summary?.avgProxyTime ?? 0)} ms`}
-          hints={[`P90: ${summary?.p90ProxyTime ?? 0}`, `P95: ${summary?.p95ProxyTime ?? 0}`, `P99: ${summary?.p99ProxyTime ?? 0}`]}
+          value={formatLatencyMs(summary?.avgProxyTime ?? 0)}
+          hints={[`P90: ${formatLatencyMs(summary?.p90ProxyTime ?? 0)}`, `P99: ${formatLatencyMs(summary?.p99ProxyTime ?? 0)}`]}
         />
         <MetricCard
           label="Avg Response Time"
-          value={`${Math.round(summary?.avgResponseTime ?? 0)} ms`}
+          value={formatLatencyMs(summary?.avgResponseTime ?? 0)}
           hints={[
-            `P90: ${summary?.p90ResponseTime ?? 0}`,
-            `P95: ${summary?.p95ResponseTime ?? 0}`,
-            `P99: ${summary?.p99ResponseTime ?? 0}`,
+            `P90: ${formatLatencyMs(summary?.p90ResponseTime ?? 0)}`,
+            `P99: ${formatLatencyMs(summary?.p99ResponseTime ?? 0)}`,
           ]}
         />
         <MetricCard
           label="Avg Tokens"
           value={String(Math.round(summary?.avgTokensPerRequest ?? 0))}
-          hints={[`P90: ${summary?.p90Tokens ?? 0}`, `P95: ${summary?.p95Tokens ?? 0}`, `P99: ${summary?.p99Tokens ?? 0}`]}
+          hints={[`P90: ${summary?.p90Tokens ?? 0}`, `P99: ${summary?.p99Tokens ?? 0}`]}
         />
       </div>
 
@@ -142,6 +238,7 @@ export function Dashboard() {
         title="Total Requests"
         subtitle="Number of requests over time"
         data={data?.timeline ?? []}
+        timeWindow={timeWindow}
         dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
       />
 
@@ -151,16 +248,19 @@ export function Dashboard() {
           title="Avg Response Latency"
           subtitle="Proxy latency vs total response time"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[
             { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
             { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
           ]}
-          unit=" ms"
+          unit="ms"
+          autoScaleMs
         />
         <TimelineChart
           title="Success Rate"
           subtitle="Percentage of successful requests"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
           unit="%"
         />
@@ -235,7 +335,7 @@ export function Dashboard() {
                 <td>
                   <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     {item.name}
-                    {item.isDeleted && <span className="badge-deleted">Deleted</span>}
+                    {!!item.isDeleted && <span className="badge-deleted">Deleted</span>}
                   </span>
                 </td>
                 <td>{item.keyPreview}</td>
@@ -244,7 +344,7 @@ export function Dashboard() {
                 </td>
                 <td>{item.totalCalls}</td>
                 <td>{item.successRate}%</td>
-                <td>{Math.round(item.avgResponseTime)} ms</td>
+                <td>{formatLatencyMs(item.avgResponseTime ?? 0)}</td>
                 <td>{formatDate(item.createdAt)}</td>
               </tr>
             ))}

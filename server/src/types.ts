@@ -42,4 +42,7 @@ export interface RequestLogRecord {
 export interface SettingsRecord {
   copilot_url: string;
   default_model: string;
+  dashboard_time_window: TimeWindow;
+  key_detail_time_window: TimeWindow;
+  auto_refresh_interval: string;
 }

@@ -18,5 +18,8 @@ logs/
 *.swp
 *.swo
 *.pids
+docs/
+!docs/images/
+tests/live/
 
 

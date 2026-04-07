@@ -1,20 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiClient, type KeyStatsResponse } from "../api/client";
+import {
+  apiClient,
+  buildStatsQuery,
+  type KeyStatsResponse,
+  type TimeWindowValue,
+  type AutoRefreshInterval,
+  type SettingsResponse,
+} from "../api/client";
 import { MetricCard } from "../components/MetricCard";
 import { TimelineChart } from "../components/TimelineChart";
 import { RequestTable, type RequestItem } from "../components/RequestTable";
 import { formatDateTime } from "../utils/dateFormatter";
+import { formatLatencyMs } from "../utils/timelineUtils";
+import { readTimeWindowPreference, saveTimeWindowPreference } from "../utils/timeWindowPreferences";
+import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
 export function KeyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [timeWindow, setTimeWindow] = useState<(typeof windows)[number]>("24h");
+  const [timeWindow, setTimeWindow] = useState<TimeWindowValue>("24h");
+  const [timeWindowReady, setTimeWindowReady] = useState(false);
   const [data, setData] = useState<KeyStatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [history, setHistory] = useState<RequestItem[]>([]);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -22,22 +34,99 @@ export function KeyDetail() {
   }, []);
 
   useEffect(() => {
-    if (!id) {
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?window=${timeWindow}`).then((r) => {
-      setData(r.data);
-      setIsLoading(false);
-    });
-  }, [id, timeWindow]);
+    let cancelled = false;
+    readTimeWindowPreference("key_detail_time_window")
+      .then((savedWindow) => {
+        if (cancelled) return;
+        setTimeWindow(savedWindow);
+        setTimeWindowReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTimeWindowReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
-    if (!id) return;
-    apiClient.get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`).then((r) => {
-      setHistory(r.data.items);
-    });
+    let cancelled = false;
+
+    apiClient
+      .get<SettingsResponse>("/settings")
+      .then((r) => {
+        if (cancelled) {
+          return;
+        }
+
+        const raw: AutoRefreshInterval = r.data.auto_refresh_interval ?? "30";
+        setAutoRefreshInterval(raw === "never" ? "never" : Number(raw));
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+
+        setAutoRefreshInterval(30);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    if (!timeWindowReady || !id) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await apiClient.get<KeyStatsResponse>(`/keys/${id}/stats?${buildStatsQuery(timeWindow)}`);
+      setData(response.data);
+    } catch {
+      // Keep the last loaded key data visible if a refresh fails.
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id, timeWindow, timeWindowReady]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  const resetRefreshTimer = useAutoRefresh(autoRefreshInterval, loadStats);
+
+  async function handleManualRefresh() {
+    await loadStats();
+    resetRefreshTimer();
+  }
+
+  async function handleTimeWindowChange(nextWindow: TimeWindowValue) {
+    setTimeWindow(nextWindow);
+    resetRefreshTimer();
+    try {
+      await saveTimeWindowPreference("key_detail_time_window", nextWindow);
+    } catch {
+      // Keep the selected window locally even if persistence fails.
+    }
+  }
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+
+    apiClient
+      .get<{ items: RequestItem[]; total: number }>(`/keys/${id}/history`)
+      .then((r) => {
+        setHistory(r.data.items);
+      })
+      .catch(() => {
+        // Keep the current request history visible if a refresh fails.
+      });
   }, [id]);
 
   const handleBack = () => {
@@ -116,13 +205,25 @@ export function KeyDetail() {
             </p>
           </div>
         </div>
-        {!isDeleted && (
-          <div className="segmented-control">
-            {windows.map((w) => (
-              <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => setTimeWindow(w)}>
-                {w}
-              </button>
-            ))}
+        {!isDeleted && timeWindowReady && (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <button
+              className="btn-icon-refresh"
+              onClick={() => {
+                void handleManualRefresh();
+              }}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              ↻
+            </button>
+            <div className="segmented-control">
+              {windows.map((w) => (
+                <button key={w} className={w === timeWindow ? "active" : ""} onClick={() => void handleTimeWindowChange(w)}>
+                  {w}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -132,18 +233,21 @@ export function KeyDetail() {
         <MetricCard label="Success Rate" value={`${stats?.successRate ?? 0}%`} />
         <MetricCard
           label="Avg Proxy Latency"
-          value={`${Math.round(stats?.avgProxyTime ?? 0)} ms`}
-          hints={[`P90: ${stats?.p90ProxyTime ?? 0}`, `P95: ${stats?.p95ProxyTime ?? 0}`, `P99: ${stats?.p99ProxyTime ?? 0}`]}
+          value={formatLatencyMs(stats?.avgProxyTime ?? 0)}
+          hints={[`P90: ${formatLatencyMs(stats?.p90ProxyTime ?? 0)}`, `P99: ${formatLatencyMs(stats?.p99ProxyTime ?? 0)}`]}
         />
         <MetricCard
           label="Avg Response Time"
-          value={`${Math.round(stats?.avgResponseTime ?? 0)} ms`}
-          hints={[`P90: ${stats?.p90ResponseTime ?? 0}`, `P95: ${stats?.p95ResponseTime ?? 0}`, `P99: ${stats?.p99ResponseTime ?? 0}`]}
+          value={formatLatencyMs(stats?.avgResponseTime ?? 0)}
+          hints={[
+            `P90: ${formatLatencyMs(stats?.p90ResponseTime ?? 0)}`,
+            `P99: ${formatLatencyMs(stats?.p99ResponseTime ?? 0)}`,
+          ]}
         />
         <MetricCard
           label="Avg Tokens"
           value={String(Math.round(stats?.avgTokensPerRequest ?? 0))}
-          hints={[`P90: ${stats?.p90Tokens ?? 0}`, `P95: ${stats?.p95Tokens ?? 0}`, `P99: ${stats?.p99Tokens ?? 0}`]}
+          hints={[`P90: ${stats?.p90Tokens ?? 0}`, `P99: ${stats?.p99Tokens ?? 0}`]}
         />
       </div>
 
@@ -152,6 +256,7 @@ export function KeyDetail() {
         title="Total Requests"
         subtitle="Number of requests over time"
         data={data?.timeline ?? []}
+        timeWindow={timeWindow}
         dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
       />
 
@@ -161,16 +266,19 @@ export function KeyDetail() {
           title="Avg Response Latency"
           subtitle="Proxy latency vs total response time"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[
             { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
             { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
           ]}
-          unit=" ms"
+          unit="ms"
+          autoScaleMs
         />
         <TimelineChart
           title="Success Rate"
           subtitle="Percentage of successful requests"
           data={data?.timeline ?? []}
+          timeWindow={timeWindow}
           dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
           unit="%"
         />

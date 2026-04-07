@@ -6,9 +6,12 @@ import { createApiKeyRecord, softDeleteApiKey, getApiKeyById, listApiKeys, updat
 import { readKeyHistory, readKeyStats, readOverview } from "../services/statsService.js";
 import { getSettings, updateSettings } from "../services/settingsService.js";
 import { validateCopilotUrl } from "../services/copilotUrlPolicy.js";
+import { requireLocalBypassForWrite } from "../middleware/cloudflareAuth.js";
 import type { TimeWindow } from "../types.js";
 
 const router = Router();
+
+const timeWindowSchema = z.enum(["24h", "7d", "30d", "90d"]);
 
 const createSchema = z.object({
   name: z.string().min(1).max(255),
@@ -38,6 +41,9 @@ const copilotUrlSchema = z
 const settingsSchema = z.object({
   copilot_url: copilotUrlSchema.optional(),
   default_model: z.string().min(1).max(255).optional(),
+  dashboard_time_window: timeWindowSchema.optional(),
+  key_detail_time_window: timeWindowSchema.optional(),
+  auto_refresh_interval: z.enum(["15", "30", "60", "180", "300", "900", "1800", "never"]).optional(),
 });
 
 const healthCheckSchema = z.object({
@@ -49,6 +55,10 @@ function normalizeWindow(value: string | undefined): TimeWindow {
     return value;
   }
   return "24h";
+}
+
+function getRequestedTimeZone(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 async function checkCopilotHealth(testUrl: string) {
@@ -78,7 +88,7 @@ router.get("/keys", (req, res) => {
   res.json({ items: listApiKeys(search, sortBy, sortDir) });
 });
 
-router.post("/keys", (req, res) => {
+router.post("/keys", requireLocalBypassForWrite, (req, res) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -97,7 +107,7 @@ router.post("/keys", (req, res) => {
   res.status(201).json({ item: record, rawKey });
 });
 
-router.patch("/keys/:id", (req, res) => {
+router.patch("/keys/:id", requireLocalBypassForWrite, (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -111,7 +121,7 @@ router.patch("/keys/:id", (req, res) => {
   res.json({ item: updated });
 });
 
-router.delete("/keys/:id", (req, res) => {
+router.delete("/keys/:id", requireLocalBypassForWrite, (req, res) => {
   const changes = softDeleteApiKey(Number(req.params.id));
   if (changes === 0) {
     return res.status(404).json({ error: { message: "API key not found" } });
@@ -128,7 +138,7 @@ router.get("/keys/:id/stats", (req, res) => {
   }
 
   const window = key.is_deleted ? null : normalizeWindow(String(req.query.window ?? "24h"));
-  res.json({ item: key, ...readKeyStats(id, window) });
+  res.json({ item: key, ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone)) });
 });
 
 router.get("/keys/:id/history", (req, res) => {
@@ -145,7 +155,7 @@ router.get("/keys/:id/history", (req, res) => {
 
 router.get("/overview", (req, res) => {
   const settings = getSettings();
-  const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")));
+  const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")), getRequestedTimeZone(req.query.timezone));
   res.json({ ...overview, defaultModel: settings.default_model });
 });
 
@@ -154,7 +164,7 @@ router.get("/settings", (_req, res) => {
   res.json(getSettings());
 });
 
-router.put("/settings", (req, res) => {
+router.put("/settings", requireLocalBypassForWrite, (req, res) => {
   const parsed = settingsSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });
@@ -173,7 +183,7 @@ router.get("/health/copilot", async (_req, res) => {
 });
 
 // POST: accepts copilot_url in body for testing an unsaved URL
-router.post("/health/copilot", async (req, res) => {
+router.post("/health/copilot", requireLocalBypassForWrite, async (req, res) => {
   const parsed = healthCheckSchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.flatten() });

@@ -8,6 +8,16 @@ export const apiClient = axios.create({
   baseURL: ADMIN_BASE,
 });
 
+export function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+export function buildStatsQuery(window: string) {
+  return new URLSearchParams({ window, timezone: getBrowserTimeZone() }).toString();
+}
+
+export type TimeWindowValue = "24h" | "7d" | "30d" | "90d";
+
 export interface ApiKeyItem {
   id: number;
   key_hash: string;
@@ -104,9 +114,14 @@ export interface KeyStatsResponse {
   }>;
 }
 
+export type AutoRefreshInterval = "15" | "30" | "60" | "180" | "300" | "900" | "1800" | "never";
+
 export interface SettingsResponse {
   copilot_url: string;
   default_model: string;
+  dashboard_time_window: TimeWindowValue;
+  key_detail_time_window: TimeWindowValue;
+  auto_refresh_interval: AutoRefreshInterval;
 }
 
 export interface HealthCheckResponse {
