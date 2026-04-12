@@ -915,14 +915,14 @@ button.secondary:hover,
 
 /* ── Model column (table) ────────────────────────────────────────────── */
 .model-col {
-  max-width: 180px;
+  /* width controlled by table layout */
 }
 
 .model-col-inner {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 100%;
 }
 
 .table-fallback-tag {
@@ -995,3 +995,93 @@ button.secondary:hover,
   outline: none;
   border-color: var(--accent);
 }
+
+/* ── Name cell (badge + text flex layout) ────────────────────────────── */
+.name-cell-flex {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.name-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.badge-deleted-sm {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: rgba(255, 90, 95, 0.2);
+  color: #ffd6d7;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+/* ── Small timestamp ─────────────────────────────────────────────────── */
+.ts-small {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+/* ── Dashboard API keys table column layout ──────────────────────────── */
+/* Columns: Name(25%) | API Key(14%) | Model(36%) | Requests(8%) | Success(8%) | Response(9%) | Created(8%) */
+.dashboard-keys-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.dashboard-keys-table th:nth-child(1) { width: 25%; }
+.dashboard-keys-table td:nth-child(1) { overflow: hidden; }
+
+.dashboard-keys-table th:nth-child(2) { width: 14%; }
+.dashboard-keys-table td:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.dashboard-keys-table th:nth-child(3) { width: 36%; }
+.dashboard-keys-table td:nth-child(3) { overflow: hidden; }
+
+.dashboard-keys-table th:nth-child(4) { width: 8%; }
+.dashboard-keys-table td:nth-child(4) { white-space: nowrap; }
+
+.dashboard-keys-table th:nth-child(5) { width: 8%; }
+.dashboard-keys-table td:nth-child(5) { white-space: nowrap; }
+
+.dashboard-keys-table th:nth-child(6) { width: 9%; }
+.dashboard-keys-table td:nth-child(6) { white-space: nowrap; }
+
+.dashboard-keys-table th:nth-child(7) { width: 8%; }
+.dashboard-keys-table td:nth-child(7) { white-space: nowrap; }
+
+/* ── Manage keys table column layout ─────────────────────────────────── */
+/* Columns: Name(22%) | API Key(12%) | Models(34%) | Created(12%) | Last Used(12%) | Actions(8%) */
+.manage-keys-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.manage-keys-table th:nth-child(1) { width: 22%; }
+.manage-keys-table td:nth-child(1) { overflow: hidden; }
+
+.manage-keys-table th:nth-child(2) { width: 12%; }
+.manage-keys-table td:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.manage-keys-table th:nth-child(3) { width: 34%; }
+.manage-keys-table td:nth-child(3) { overflow: hidden; }
+
+.manage-keys-table th:nth-child(4) { width: 12%; }
+.manage-keys-table td:nth-child(4) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.manage-keys-table th:nth-child(5) { width: 12%; }
+.manage-keys-table td:nth-child(5) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.manage-keys-table th:nth-child(6) { width: 8%; }
+.manage-keys-table td:nth-child(6) { overflow: visible; }

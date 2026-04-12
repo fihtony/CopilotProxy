@@ -340,7 +340,7 @@ export function Dashboard() {
             </div>
           </div>
         </div>
-        <table>
+        <table className="dashboard-keys-table">
           <thead>
             <tr>
               <th className="sortable" onClick={() => handleSort("name")}>
@@ -373,9 +373,9 @@ export function Dashboard() {
                 }}
               >
                 <td>
-                  <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    {item.name}
-                    {!!item.isDeleted && <span className="badge-deleted">Deleted</span>}
+                  <span className="name-cell-flex">
+                    {!!item.isDeleted && <span className="badge-deleted-sm">Del</span>}
+                    <span className="name-text">{item.name}</span>
                   </span>
                 </td>
                 <td>{item.keyPreview}</td>

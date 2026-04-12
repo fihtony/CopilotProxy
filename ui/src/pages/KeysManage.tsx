@@ -578,7 +578,7 @@ export function KeysManage() {
             </div>
           </div>
         </div>
-        <table>
+        <table className="manage-keys-table">
           <thead>
             <tr>
               <th className="sortable" onClick={() => handleSort("name")}>
@@ -607,9 +607,9 @@ export function KeysManage() {
                 }}
               >
                 <td>
-                  <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    {item.name}
-                    {item.is_deleted === 1 && <span className="badge-deleted">Deleted</span>}
+                  <span className="name-cell-flex">
+                    {item.is_deleted === 1 && <span className="badge-deleted-sm">Del</span>}
+                    <span className="name-text">{item.name}</span>
                   </span>
                 </td>
                 <td>{item.key_preview}</td>
@@ -621,8 +621,8 @@ export function KeysManage() {
                     {renderTableModels(parseAllowedModels(item), item.fallback_model)}
                   </div>
                 </td>
-                <td>{formatDateTime(item.created_at)}</td>
-                <td>{formatDateTime(item.last_used_at)}</td>
+                <td><span className="ts-small">{formatDateTime(item.created_at)}</span></td>
+                <td><span className="ts-small">{formatDateTime(item.last_used_at)}</span></td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <div className="action-icons-row">
                     {!item.is_deleted && (
