@@ -58,7 +58,7 @@ test("TC-KEY-01: DB fields are set correctly after key creation", async ({ page,
 
   // Verify DB fields via admin API
   expect(item.name).toBe(name);
-  expect(JSON.parse(item.allowed_models)).toContain("gpt-4o");
+  expect(item.allowed_models).toContain("gpt-4o");
   expect(item.fallback_model).toBe("gpt-4o");
   expect(item.is_active).toBe(1);
   expect(item.key_preview).toMatch(/^cps_.{4,8}\.{3}.{4}$/);
@@ -80,7 +80,7 @@ test("TC-KEY-02: default model fallback from settings", async ({ request }) => {
   const settings = await request.get(`${ADMIN_URL}/api/admin/settings`);
   const { default_model } = await settings.json();
   expect(item.fallback_model).toBe(default_model);
-  expect(JSON.parse(item.allowed_models)).toContain(default_model);
+  expect(item.allowed_models).toContain(default_model);
 
   await request.delete(`${ADMIN_URL}/api/admin/keys/${item.id}`);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   apiClient,
@@ -20,6 +20,20 @@ import { useAutoRefresh } from "../hooks/useAutoRefresh";
 
 const windows = ["24h", "7d", "30d", "90d"] as const;
 
+function renderTableModels(models: string[], fallback: string) {
+  return (
+    <>
+      {models.map((m, i) => (
+        <span key={m}>
+          {m}
+          {m === fallback && <span className="table-fallback-tag">fallback</span>}
+          {i < models.length - 1 && ", "}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function Dashboard() {
   const navigate = useNavigate();
   const [timeWindow, setTimeWindow] = useState<TimeWindowValue>("24h");
@@ -32,6 +46,7 @@ export function Dashboard() {
   const [showDeleted, setShowDeleted] = useState(false);
   const [showCustomModel, setShowCustomModel] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("total");
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -121,6 +136,29 @@ export function Dashboard() {
 
   const summary = data?.summary;
   const defaultModel = data?.defaultModel ?? "";
+
+  // Build model selector from distinct models present in the current time window
+  const dashboardModelOptions = useMemo((): Array<{ value: string; label: string }> => {
+    const byModel = data?.request_timeline_by_model;
+    if (!byModel || Object.keys(byModel).length === 0) return [{ value: "total", label: "Total Requests" }];
+    const models = Object.keys(byModel).sort();
+    return [{ value: "total", label: "Total Requests" }, ...models.map((m) => ({ value: m, label: m }))];
+  }, [data]);
+
+  // Reset selected model when it disappears from the new time-window data
+  const modelAvailable = selectedModel === "total" || Boolean(data?.request_timeline_by_model?.[selectedModel]);
+  const effectiveModel = modelAvailable ? selectedModel : "total";
+
+  const isDashboardTotal = effectiveModel === "total";
+  const dashboardRequestData = isDashboardTotal ? (data?.timeline ?? []) : (data!.request_timeline_by_model[effectiveModel] ?? []);
+  const dashboardLatencyData = isDashboardTotal ? (data?.timeline ?? []) : (data!.response_timeline_by_model?.[effectiveModel] ?? []);
+  const dashboardLatencyKeys = isDashboardTotal
+    ? [
+        { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
+        { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
+      ]
+    : [{ key: "avgResponseTime", color: "#60a5fa", label: "Response Time" }];
+  const dashboardSuccessData = isDashboardTotal ? (data?.timeline ?? []) : (data!.success_timeline_by_model?.[effectiveModel] ?? []);
 
   // Client-side filter for the key table
   const filtered = (data?.keySummaries ?? []).filter((k) => {
@@ -239,29 +277,29 @@ export function Dashboard() {
       <TimelineChart
         title="Total Requests"
         subtitle="Number of requests over time"
-        data={data?.timeline ?? []}
+        data={dashboardRequestData}
         timeWindow={timeWindow}
         dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
+        selectorOptions={dashboardModelOptions.length > 1 ? dashboardModelOptions : undefined}
+        selectorValue={effectiveModel}
+        onSelectorChange={setSelectedModel}
       />
 
       {/* Side-by-side: Avg Latency + Success Rate */}
       <div className="chart-row-split">
         <TimelineChart
           title="Avg Response Latency"
-          subtitle="Proxy latency vs total response time"
-          data={data?.timeline ?? []}
+          subtitle={isDashboardTotal ? "Proxy latency vs total response time" : `Response time for ${effectiveModel}`}
+          data={dashboardLatencyData}
           timeWindow={timeWindow}
-          dataKeys={[
-            { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
-            { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
-          ]}
+          dataKeys={dashboardLatencyKeys}
           unit="ms"
           autoScaleMs
         />
         <TimelineChart
           title="Success Rate"
           subtitle="Percentage of successful requests"
-          data={data?.timeline ?? []}
+          data={dashboardSuccessData}
           timeWindow={timeWindow}
           dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
           unit="%"
@@ -341,8 +379,16 @@ export function Dashboard() {
                   </span>
                 </td>
                 <td>{item.keyPreview}</td>
-                <td>
-                  <span className={parseAllowedModels({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any).some((m) => m !== defaultModel) ? "model-custom" : ""}>{formatModelDisplay({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any)}</span>
+                <td className="model-col">
+                  <div
+                    className={`model-col-inner${parseAllowedModels({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any).some((m) => m !== defaultModel) ? " model-custom" : ""}`}
+                    title={formatModelDisplay({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any)}
+                  >
+                    {renderTableModels(
+                      parseAllowedModels({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any),
+                      item.fallback_model,
+                    )}
+                  </div>
                 </td>
                 <td>{item.totalCalls}</td>
                 <td>{item.successRate}%</td>

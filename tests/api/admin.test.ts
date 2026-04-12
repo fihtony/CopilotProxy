@@ -54,12 +54,15 @@ describe("admin routes", () => {
     // LOCAL_ADMIN_USER is overridden to test user in beforeAll.
     expect(createResponse.body.item.created_by_name).toBe("Test User");
     expect(createResponse.body.item.created_by_email).toBe("test@localhost.com");
-    expect(createResponse.body.item.allowed_models).toBe(JSON.stringify(["gpt-5-mini"]));
+    expect(createResponse.body.item.allowed_models).toEqual(["gpt-5-mini"]);
     expect(createResponse.body.item.fallback_model).toBe("gpt-5-mini");
+    expect(createResponse.body.item.model).toBeUndefined();
 
     const listResponse = await request(app).get("/api/admin/keys").expect(200);
     expect(Array.isArray(listResponse.body.items)).toBe(true);
-    expect(listResponse.body.items.some((item: { name: string }) => item.name === "Test Key")).toBe(true);
+    const createdItem = listResponse.body.items.find((item: { name: string }) => item.name === "Test Key");
+    expect(createdItem).toBeDefined();
+    expect(createdItem.allowed_models).toEqual(["gpt-5-mini"]);
   });
 
   it("creates key with default fallback model from settings when omitted", async () => {
@@ -68,7 +71,7 @@ describe("admin routes", () => {
       .send({ name: "Default Model Key" })
       .expect(201);
     expect(res.body.item.fallback_model).toBe("gpt-5-mini");
-    expect(res.body.item.allowed_models).toBe(JSON.stringify(["gpt-5-mini"]));
+    expect(res.body.item.allowed_models).toEqual(["gpt-5-mini"]);
   });
 
   it("created_by is stored and returned via stats endpoint", async () => {
@@ -111,7 +114,7 @@ describe("admin routes", () => {
       .post("/api/admin/keys")
       .send({ name: "Exactly20Models", allowed_models: exactly20, fallback_model: "test-model-1" })
       .expect(201);
-    expect(JSON.parse(res.body.item.allowed_models).length).toBe(20);
+    expect(res.body.item.allowed_models).toHaveLength(20);
   });
 
   it("TC-API-CREATE-011: deduplicates allowed_models on create", async () => {
@@ -119,7 +122,7 @@ describe("admin routes", () => {
       .post("/api/admin/keys")
       .send({ name: "DedupModels", allowed_models: ["gpt-5-mini", "gpt-5-mini", "gpt-4o", "gpt-4o"], fallback_model: "gpt-5-mini" })
       .expect(201);
-    const stored = JSON.parse(res.body.item.allowed_models);
+    const stored = res.body.item.allowed_models;
     expect(stored).toEqual(["gpt-5-mini", "gpt-4o"]);
   });
 
@@ -128,7 +131,7 @@ describe("admin routes", () => {
       .post("/api/admin/keys")
       .send({ name: "MultiModel", allowed_models: ["gpt-4o", "gpt-5-mini"], fallback_model: "gpt-5-mini" })
       .expect(201);
-    const stored = JSON.parse(res.body.item.allowed_models);
+    const stored = res.body.item.allowed_models;
     expect(stored).toContain("gpt-4o");
     expect(stored).toContain("gpt-5-mini");
     expect(res.body.item.fallback_model).toBe("gpt-5-mini");
@@ -164,7 +167,7 @@ describe("admin routes", () => {
       .patch(`/api/admin/keys/${created.body.item.id}`)
       .send({ allowed_models: ["gpt-4o", "gpt-5-mini"], fallback_model: "gpt-4o" })
       .expect(200);
-    const stored = JSON.parse(patched.body.item.allowed_models);
+    const stored = patched.body.item.allowed_models;
     expect(stored).toContain("gpt-4o");
     expect(patched.body.item.fallback_model).toBe("gpt-4o");
   });

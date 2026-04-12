@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   apiClient,
   buildStatsQuery,
-  formatModelDisplay,
+  parseAllowedModels,
   type KeyStatsResponse,
   type TimeWindowValue,
   type AutoRefreshInterval,
@@ -28,6 +28,12 @@ export function KeyDetail() {
   const [isLoading, setIsLoading] = useState(true);
   const [history, setHistory] = useState<RequestItem[]>([]);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number | "never" | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("total");
+
+  // Reset model selection when navigating to a different key
+  useEffect(() => {
+    setSelectedModel("total");
+  }, [id]);
 
   // Always show page from beginning on load
   useEffect(() => {
@@ -158,6 +164,33 @@ export function KeyDetail() {
 
   const stats = data?.stats;
   const isDeleted = data?.item.is_deleted === 1;
+  const detailModels = data?.item ? parseAllowedModels(data.item) : [];
+  const detailFallbackModel = data?.item?.fallback_model ?? "";
+  const detailOtherModels = detailModels.filter((model) => model !== detailFallbackModel);
+
+  // Build model selector options: Total first, then fallback, then other allowed models
+  const modelSelectorOptions = useMemo((): Array<{ value: string; label: string }> => {
+    if (!data?.item) return [{ value: "total", label: "Total Requests" }];
+    const models = parseAllowedModels(data.item);
+    const fallback = data.item.fallback_model;
+    const others = models.filter((m) => m !== fallback);
+    return [
+      { value: "total", label: "Total Requests" },
+      { value: fallback, label: `${fallback} (fallback)` },
+      ...others.map((m) => ({ value: m, label: m })),
+    ];
+  }, [data]);
+
+  const isTotal = selectedModel === "total";
+  const requestChartData = isTotal ? (data?.timeline ?? []) : (data?.request_timeline_by_model[selectedModel] ?? []);
+  const latencyChartData = isTotal ? (data?.timeline ?? []) : (data?.response_timeline_by_model[selectedModel] ?? []);
+  const latencyDataKeys = isTotal
+    ? [
+        { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
+        { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
+      ]
+    : [{ key: "avgResponseTime", color: "#60a5fa", label: "Response Time" }];
+  const successChartData = isTotal ? (data?.timeline ?? []) : (data?.success_timeline_by_model[selectedModel] ?? []);
 
   return (
     <div className="page-stack">
@@ -183,15 +216,6 @@ export function KeyDetail() {
                 <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>api key:</span>{" "}
                 <code style={{ marginLeft: "0.25rem" }}>{data?.item.key_preview ?? ""}</code>
               </span>
-              <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>models:</span> {data?.item ? formatModelDisplay(data.item) : ""}
-              </span>
-              <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span> {formatDateTime(data?.item.created_at)}
-              </span>
-              <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span> {formatDateTime(data?.item.last_used_at)}
-              </span>
               {data?.item.created_by_name && (
                 <span>
                   <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created by:</span> {data.item.created_by_name}
@@ -200,6 +224,26 @@ export function KeyDetail() {
                   )}
                 </span>
               )}
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span> {formatDateTime(data?.item.created_at)}
+              </span>
+              <span>
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>last used:</span> {formatDateTime(data?.item.last_used_at)}
+              </span>
+            </p>
+            <p style={{ margin: "0.3rem 0 0", fontSize: "0.88rem", lineHeight: 1.5 }}>
+              <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>models:</span>{" "}
+              {data?.item ? (
+                <span className="detail-model-list">
+                  <span className="detail-model-chip">
+                    <span>{detailFallbackModel}</span>
+                    <span className="fallback-tag">fallback</span>
+                  </span>
+                  {detailOtherModels.map((model) => (
+                    <span key={model} className="model-tag">{model}</span>
+                  ))}
+                </span>
+              ) : null}
             </p>
           </div>
         </div>
@@ -253,29 +297,29 @@ export function KeyDetail() {
       <TimelineChart
         title="Total Requests"
         subtitle="Number of requests over time"
-        data={data?.timeline ?? []}
+        data={requestChartData}
         timeWindow={timeWindow}
         dataKeys={[{ key: "calls", color: "#ff7a18", label: "Requests" }]}
+        selectorOptions={modelSelectorOptions.length > 1 ? modelSelectorOptions : undefined}
+        selectorValue={selectedModel}
+        onSelectorChange={setSelectedModel}
       />
 
       {/* Side-by-side: Avg Latency + Success Rate */}
       <div className="chart-row-split">
         <TimelineChart
           title="Avg Response Latency"
-          subtitle="Proxy latency vs total response time"
-          data={data?.timeline ?? []}
+          subtitle={isTotal ? "Proxy latency vs total response time" : `Response time for ${selectedModel}`}
+          data={latencyChartData}
           timeWindow={timeWindow}
-          dataKeys={[
-            { key: "avgProxyTime", color: "#34d399", label: "Proxy Latency" },
-            { key: "avgResponseTime", color: "#60a5fa", label: "Response Time" },
-          ]}
+          dataKeys={latencyDataKeys}
           unit="ms"
           autoScaleMs
         />
         <TimelineChart
           title="Success Rate"
           subtitle="Percentage of successful requests"
-          data={data?.timeline ?? []}
+          data={successChartData}
           timeWindow={timeWindow}
           dataKeys={[{ key: "successRate", color: "#a78bfa", label: "Success %" }]}
           unit="%"

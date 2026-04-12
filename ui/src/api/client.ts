@@ -18,12 +18,14 @@ export function buildStatsQuery(window: string) {
 
 export type TimeWindowValue = "24h" | "7d" | "30d" | "90d";
 
+export type AllowedModelsValue = string[] | string;
+
 export interface ApiKeyItem {
   id: number;
   key_hash: string;
   key_preview: string;
   name: string;
-  allowed_models: string;
+  allowed_models: AllowedModelsValue;
   fallback_model: string;
   is_active: number;
   is_deleted: number;
@@ -38,17 +40,23 @@ export interface ApiKeyItem {
 }
 
 /** Parsed allowed_models from JSON string, with fallback first in display order */
-export function parseAllowedModels(item: ApiKeyItem): string[] {
+export function parseAllowedModels(item: Pick<ApiKeyItem, "allowed_models">): string[] {
+  const { allowed_models } = item;
+
+  if (Array.isArray(allowed_models)) {
+    return allowed_models.filter((model): model is string => typeof model === "string").map((model) => model.trim()).filter(Boolean);
+  }
+
   try {
-    const models = JSON.parse(item.allowed_models) as string[];
-    return Array.isArray(models) ? models : [];
+    const models = JSON.parse(allowed_models) as string[];
+    return Array.isArray(models) ? models.filter((model): model is string => typeof model === "string").map((model) => model.trim()).filter(Boolean) : [];
   } catch {
     return [];
   }
 }
 
 /** Format models for display: fallback first with (fallback) marker */
-export function formatModelDisplay(item: ApiKeyItem): string {
+export function formatModelDisplay(item: Pick<ApiKeyItem, "allowed_models" | "fallback_model">): string {
   const models = parseAllowedModels(item);
   const fallback = item.fallback_model;
   const others = models.filter((m) => m !== fallback);
@@ -86,7 +94,7 @@ export interface OverviewResponse {
   keySummaries: Array<{
     id: number;
     name: string;
-    allowed_models: string;
+    allowed_models: AllowedModelsValue;
     fallback_model: string;
     keyPreview: string;
     isDeleted: number;
@@ -97,6 +105,10 @@ export interface OverviewResponse {
     avgResponseTime: number;
   }>;
   timeline: TimelinePoint[];
+  request_timeline_total?: Array<{ bucket: string; calls: number }>;
+  request_timeline_by_model: Record<string, Array<{ bucket: string; calls: number }>>;
+  response_timeline_by_model: Record<string, Array<{ bucket: string; avgResponseTime: number }>>;
+  success_timeline_by_model: Record<string, Array<{ bucket: string; successRate: number }>>;
 }
 
 export interface KeyStatsResponse {
@@ -121,6 +133,7 @@ export interface KeyStatsResponse {
     p99Tokens: number;
   };
   timeline: TimelinePoint[];
+  request_timeline_total?: Array<{ bucket: string; calls: number }>;
   request_timeline_by_model: Record<string, Array<{ bucket: string; calls: number }>>;
   response_timeline_by_model: Record<string, Array<{ bucket: string; avgResponseTime: number }>>;
   success_timeline_by_model: Record<string, Array<{ bucket: string; successRate: number }>>;

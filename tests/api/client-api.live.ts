@@ -38,7 +38,8 @@ type CopilotModeResponse = {
 type ApiKeyCreateResponse = {
   item: {
     id: number;
-    model: string;
+    allowed_models: string[];
+    fallback_model: string;
   };
   rawKey: string;
 };
@@ -394,7 +395,8 @@ async function createApiKey(): Promise<void> {
     },
     body: JSON.stringify({
       name: `${TEST_API_KEY_NAME} ${Date.now()}`,
-      model: TARGET_AI_MODEL,
+      allowed_models: [TARGET_AI_MODEL],
+      fallback_model: TARGET_AI_MODEL,
     }),
   });
 

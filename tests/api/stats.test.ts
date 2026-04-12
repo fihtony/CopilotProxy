@@ -82,6 +82,11 @@ function toFourHourBucket(timestamp: string, timeZone: string) {
   return `${parts.year}-${parts.month}-${parts.day} ${String(flooredHour).padStart(2, "0")}:00:00`;
 }
 
+function getExpected7dBucketCount(date: Date, timeZone: string) {
+  const parts = getZonedBucketParts(date, timeZone);
+  return 36 + Math.floor(Number(parts.hour) / 4) + 1;
+}
+
 describe("stats routes", () => {
   const app = createApp();
   let rawKey = "";
@@ -121,6 +126,7 @@ describe("stats routes", () => {
 
     // Timeline
     expect(Array.isArray(overview.body.timeline)).toBe(true);
+    expect(Array.isArray(overview.body.request_timeline_total)).toBe(true);
 
     // Key summaries
     expect(Array.isArray(overview.body.keySummaries)).toBe(true);
@@ -191,6 +197,9 @@ describe("stats routes", () => {
     const timeZone = "America/Halifax";
     const timestamp = new Date().toISOString();
     const expectedBucket = toFourHourBucket(timestamp, timeZone);
+    const statsRequestedAt = new Date();
+    const expectedLastBucket = toFourHourBucket(statsRequestedAt.toISOString(), timeZone);
+    const expectedBucketCount = getExpected7dBucketCount(statsRequestedAt, timeZone);
 
     insertSyntheticRequest({
       apiKeyId: created.body.item.id,
@@ -205,10 +214,11 @@ describe("stats routes", () => {
       .get(`/api/admin/keys/${created.body.item.id}/stats?window=7d&timezone=${encodeURIComponent(timeZone)}`)
       .expect(200);
 
-    expect(res.body.timeline).toHaveLength(42);
+    expect(res.body.timeline).toHaveLength(expectedBucketCount);
     expect(res.body.timeline.reduce((sum: number, point: { calls: number }) => sum + point.calls, 0)).toBe(1);
     expect(res.body.timeline.some((point: { calls: number }) => point.calls === 0)).toBe(true);
     expect(res.body.timeline.find((point: { bucket: string; calls: number }) => point.bucket === expectedBucket)?.calls).toBe(1);
+    expect(res.body.timeline[res.body.timeline.length - 1]?.bucket).toBe(expectedLastBucket);
   });
 
   it("returns all-time stats for soft-deleted key", async () => {

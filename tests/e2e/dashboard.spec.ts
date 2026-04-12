@@ -131,7 +131,7 @@ test("highlights the saved API key time window on entry", async ({ page }) => {
           key_hash: "hash",
           key_preview: "cps_test...9999",
           name: "Test Key",
-          allowed_models: JSON.stringify(["gpt-5-mini"]),
+          allowed_models: ["gpt-5-mini"],
           fallback_model: "gpt-5-mini",
           is_active: 1,
           is_deleted: 0,

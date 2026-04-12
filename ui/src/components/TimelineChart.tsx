@@ -12,9 +12,13 @@ interface TimelineChartProps {
   timeWindow?: TimeWindowValue;
   /** When true and unit is "ms", automatically switch Y-axis to seconds if any value is at least 10 s. */
   autoScaleMs?: boolean;
+  /** Optional dropdown options shown in the chart header. Rendered only when there are >1 entries. */
+  selectorOptions?: Array<{ value: string; label: string }>;
+  selectorValue?: string;
+  onSelectorChange?: (value: string) => void;
 }
 
-export function TimelineChart({ title, subtitle, data, dataKeys, unit, timeWindow, autoScaleMs }: TimelineChartProps) {
+export function TimelineChart({ title, subtitle, data, dataKeys, unit, timeWindow, autoScaleMs, selectorOptions, selectorValue, onSelectorChange }: TimelineChartProps) {
   const useSeconds =
     Boolean(autoScaleMs) && unit === "ms" && data.some((row) => dataKeys.some((dk) => Number(row[dk.key] ?? 0) >= 10_000));
 
@@ -104,11 +108,26 @@ export function TimelineChart({ title, subtitle, data, dataKeys, unit, timeWindo
     );
   }
 
+  const hasSelector = selectorOptions && selectorOptions.length > 1;
+
   return (
     <div className="chart-card" data-testid="timeline-chart">
-      <div className="section-head">
-        <h3>{title}</h3>
-        {subtitle && <p>{subtitle}</p>}
+      <div className="section-head" style={hasSelector ? { alignItems: "center" } : undefined}>
+        <div>
+          <h3 style={{ margin: 0 }}>{title}</h3>
+          {subtitle && <p style={{ margin: "0.2rem 0 0", color: "var(--muted)", fontSize: "0.85rem" }}>{subtitle}</p>}
+        </div>
+        {hasSelector && (
+          <select
+            className="chart-model-select"
+            value={selectorValue ?? selectorOptions![0]?.value}
+            onChange={(e) => onSelectorChange?.(e.target.value)}
+          >
+            {selectorOptions!.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )}
       </div>
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data}>

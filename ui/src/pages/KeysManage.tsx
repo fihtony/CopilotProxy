@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import Select, { type SingleValue, type StylesConfig } from "react-select";
 import { apiClient, parseAllowedModels, formatModelDisplay, type ApiKeyItem, type HealthCheckResponse, type SettingsResponse } from "../api/client";
 import { Modal } from "../components/Modal";
 import { formatDateTime } from "../utils/dateFormatter";
@@ -10,6 +11,122 @@ const MAX_ALLOWED_MODELS = 20;
 interface CreateResponse {
   item: ApiKeyItem;
   rawKey: string;
+}
+
+interface ModelOption {
+  value: string;
+  label: string;
+}
+
+const modelSelectStyles: StylesConfig<ModelOption, false> = {
+  control: (base, state) => ({
+    ...base,
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(12, 13, 17, 0.9)",
+    borderColor: state.isFocused ? "#ff7a18" : "rgba(255, 255, 255, 0.08)",
+    boxShadow: "none",
+    ":hover": {
+      borderColor: state.isFocused ? "#ff7a18" : "rgba(255, 255, 255, 0.18)",
+    },
+  }),
+  valueContainer: (base) => ({
+    ...base,
+    padding: "0 0.9rem",
+  }),
+  input: (base) => ({
+    ...base,
+    color: "#f2f1eb",
+    fontFamily: '"IBM Plex Mono", monospace',
+    fontSize: "0.85rem",
+  }),
+  placeholder: (base) => ({
+    ...base,
+    color: "#abafc1",
+    fontSize: "0.84rem",
+  }),
+  singleValue: (base) => ({
+    ...base,
+    color: "#f2f1eb",
+    fontFamily: '"IBM Plex Mono", monospace',
+    fontSize: "0.85rem",
+  }),
+  menu: (base) => ({
+    ...base,
+    borderRadius: 14,
+    border: "1px solid rgba(255, 255, 255, 0.08)",
+    backgroundColor: "rgba(18, 19, 24, 0.98)",
+    overflow: "hidden",
+  }),
+  menuList: (base) => ({
+    ...base,
+    padding: 6,
+  }),
+  option: (base, state) => ({
+    ...base,
+    borderRadius: 10,
+    backgroundColor: state.isSelected
+      ? "rgba(255, 122, 24, 0.18)"
+      : state.isFocused
+        ? "rgba(255, 255, 255, 0.08)"
+        : "transparent",
+    color: "#f2f1eb",
+    cursor: "pointer",
+    fontFamily: '"IBM Plex Mono", monospace',
+    fontSize: "0.84rem",
+  }),
+  dropdownIndicator: (base, state) => ({
+    ...base,
+    color: state.isFocused ? "#ff7a18" : "#abafc1",
+    ":hover": { color: "#ff7a18" },
+  }),
+  clearIndicator: (base) => ({
+    ...base,
+    color: "#abafc1",
+    ":hover": { color: "#f2f1eb" },
+  }),
+  indicatorSeparator: () => ({ display: "none" }),
+  noOptionsMessage: (base) => ({
+    ...base,
+    color: "#abafc1",
+    fontSize: "0.82rem",
+  }),
+  menuPortal: (base) => ({
+    ...base,
+    zIndex: 200,
+  }),
+};
+
+function renderTableModels(models: string[], fallback: string) {
+  return (
+    <>
+      {models.map((m, i) => (
+        <span key={m}>
+          {m}
+          {m === fallback && <span className="table-fallback-tag">fallback</span>}
+          {i < models.length - 1 && ", "}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function normalizeModelIds(models: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const model of models) {
+    const trimmed = model.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+}
+
+function toModelOption(model: string): ModelOption {
+  return { value: model, label: model };
 }
 
 export function KeysManage() {
@@ -31,6 +148,7 @@ export function KeysManage() {
   const [createError, setCreateError] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [manualModelInput, setManualModelInput] = useState("");
+  const [createModelQuery, setCreateModelQuery] = useState("");
   const [createdKey, setCreatedKey] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -40,6 +158,7 @@ export function KeysManage() {
   const [editAllowedModels, setEditAllowedModels] = useState<string[]>([]);
   const [editFallbackModel, setEditFallbackModel] = useState("");
   const [editManualModelInput, setEditManualModelInput] = useState("");
+  const [editModelQuery, setEditModelQuery] = useState("");
 
   // Delete modal
   const [deleteItem, setDeleteItem] = useState<ApiKeyItem | null>(null);
@@ -89,18 +208,40 @@ export function KeysManage() {
   }, [load]);
 
   async function fetchModels(): Promise<string> {
+    let defaultModel = "";
     try {
       const s = await apiClient.get<SettingsResponse>("/settings");
+      defaultModel = s.data.default_model.trim();
       const r = await apiClient.post<HealthCheckResponse>("/health/copilot", { copilot_url: s.data.copilot_url });
-      if (r.data.models) setAvailableModels(r.data.models);
-      return s.data.default_model;
+      setAvailableModels(normalizeModelIds(r.data.models ?? []));
+      return defaultModel;
     } catch {
-      return "";
+      setAvailableModels([]);
+      return defaultModel;
     }
   }
 
   function normalizeModelList(raw: string): string[] {
-    return raw.split(/[,\n]/).map((m) => m.trim()).filter(Boolean).filter((m, i, arr) => arr.indexOf(m) === i);
+    return normalizeModelIds(raw.split(/[,\n]/));
+  }
+
+  function addAllowedModel(
+    model: string,
+    current: string[],
+    setCurrent: (v: string[]) => void,
+    setFallback: (v: string) => void,
+    currentFallback: string,
+  ) {
+    const trimmedModel = model.trim();
+    if (!trimmedModel || current.includes(trimmedModel)) {
+      return;
+    }
+
+    const next = [...current, trimmedModel];
+    setCurrent(next);
+    if (!currentFallback) {
+      setFallback(trimmedModel);
+    }
   }
 
   function toggleAllowedModel(
@@ -151,6 +292,7 @@ export function KeysManage() {
     setCreateError("");
     setAvailableModels([]);
     setManualModelInput("");
+    setCreateModelQuery("");
     setShowCreate(true);
     fetchModels().then((dm) => {
       if (dm) {
@@ -167,7 +309,8 @@ export function KeysManage() {
     setEditAllowedModels(models);
     setEditFallbackModel(item.fallback_model);
     setEditManualModelInput("");
-    fetchModels();
+    setEditModelQuery("");
+    void fetchModels();
   }
 
   function renderModelSelector(
@@ -178,25 +321,57 @@ export function KeysManage() {
     setFallbackModel: (v: string) => void,
     manualInput: string,
     setManualInput: (v: string) => void,
+    modelQuery: string,
+    setModelQuery: (v: string) => void,
     testIdPrefix: string,
   ) {
+    const selectableOptions = availableModels.filter((model) => !allowedModels.includes(model)).map(toModelOption);
+    const fallbackOptions = allowedModels.map(toModelOption);
+    const selectedFallback = fallbackOptions.find((option) => option.value === fallbackModel) ?? null;
+    const menuPortalTarget = typeof document === "undefined" ? undefined : document.body;
+
     return (
       <>
         <div>
           <label>{label}</label>
           {availableModels.length > 0 ? (
-            <div className="model-checkbox-group" data-testid={`${testIdPrefix}-model-checkboxes`}>
-              {availableModels.map((m) => (
-                <label key={m} className="model-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={allowedModels.includes(m)}
-                    onChange={() => toggleAllowedModel(m, allowedModels, setAllowedModels, setFallbackModel, fallbackModel)}
-                    data-testid={`${testIdPrefix}-model-check-${m}`}
-                  />
-                  {m}
-                </label>
-              ))}
+            <div className="model-select-stack" data-testid={`${testIdPrefix}-model-dropdown`}>
+              <Select<ModelOption, false>
+                inputId={`${testIdPrefix}-model-picker`}
+                instanceId={`${testIdPrefix}-model-picker`}
+                aria-label={`${label} selector`}
+                options={selectableOptions}
+                value={null}
+                inputValue={modelQuery}
+                onInputChange={(value, actionMeta) => {
+                  if (actionMeta.action === "input-change") {
+                    setModelQuery(value);
+                  }
+                  if (actionMeta.action === "menu-close") {
+                    setModelQuery("");
+                  }
+                }}
+                onChange={(option: SingleValue<ModelOption>) => {
+                  if (!option || allowedModels.length >= MAX_ALLOWED_MODELS) {
+                    return;
+                  }
+                  addAllowedModel(option.value, allowedModels, setAllowedModels, setFallbackModel, fallbackModel);
+                  setModelQuery("");
+                }}
+                styles={modelSelectStyles}
+                classNamePrefix="model-picker-select"
+                placeholder={allowedModels.length >= MAX_ALLOWED_MODELS ? `Maximum ${MAX_ALLOWED_MODELS} models selected` : "Type to filter and add a model"}
+                noOptionsMessage={() => {
+                  if (allowedModels.length >= MAX_ALLOWED_MODELS) {
+                    return `Maximum ${MAX_ALLOWED_MODELS} models selected`;
+                  }
+                  return modelQuery.trim() ? "No matching models" : "No more models available";
+                }}
+                isClearable
+                isDisabled={allowedModels.length >= MAX_ALLOWED_MODELS || selectableOptions.length === 0}
+                menuPortalTarget={menuPortalTarget}
+              />
+              <p className="model-helper-text">Type to filter the available model IDs, then select one to add it below.</p>
             </div>
           ) : (
             <div>
@@ -216,49 +391,49 @@ export function KeysManage() {
               >
                 Add
               </button>
-              {allowedModels.length > 0 && (
-                <div className="model-chips" data-testid={`${testIdPrefix}-model-chips`}>
-                  {allowedModels.map((m) => (
-                    <span key={m} className="model-chip">
-                      {m}
-                      <button
-                        type="button"
-                        className="model-chip-remove"
-                        onClick={() => toggleAllowedModel(m, allowedModels, setAllowedModels, setFallbackModel, fallbackModel)}
-                        aria-label={`Remove ${m}`}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+              <p className="model-helper-text">Upstream models are unavailable, so you can paste model IDs manually.</p>
             </div>
           )}
         </div>
-        {allowedModels.length > 1 && (
-          <div>
-            <label htmlFor={`${testIdPrefix}-fallback`}>Fallback Model</label>
-            <select
-              id={`${testIdPrefix}-fallback`}
-              value={fallbackModel}
-              onChange={(e) => setFallbackModel(e.target.value)}
-              data-testid={`${testIdPrefix}-fallback`}
-            >
-              <option value="">-- select fallback --</option>
-              {allowedModels.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+
+        {allowedModels.length > 0 && (
+          <div className="model-chips" data-testid={`${testIdPrefix}-model-chips`}>
+            {allowedModels.map((m) => (
+              <span key={m} className="model-chip">
+                <span>{m}</span>
+                {m === fallbackModel && <span className="model-chip-tag">fallback</span>}
+                <button
+                  type="button"
+                  className="model-chip-remove"
+                  onClick={() => toggleAllowedModel(m, allowedModels, setAllowedModels, setFallbackModel, fallbackModel)}
+                  aria-label={`Remove ${m}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
         )}
+
         {allowedModels.length > 0 && (
-          <div className="model-preview" data-testid={`${testIdPrefix}-model-preview`}>
-            <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>Preview: </span>
-            {fallbackModel && <span className="model-fallback-badge">{fallbackModel}(fallback)</span>}
-            {allowedModels.filter((m) => m !== fallbackModel).map((m) => (
-              <span key={m} className="model-tag">{m}</span>
-            ))}
+          <div>
+            <label htmlFor={`${testIdPrefix}-fallback`}>Fallback Model</label>
+            <div data-testid={`${testIdPrefix}-fallback`}>
+              <Select<ModelOption, false>
+                inputId={`${testIdPrefix}-fallback`}
+                instanceId={`${testIdPrefix}-fallback`}
+                aria-label="Fallback model selector"
+                options={fallbackOptions}
+                value={selectedFallback}
+                onChange={(option: SingleValue<ModelOption>) => setFallbackModel(option?.value ?? "")}
+                styles={modelSelectStyles}
+                classNamePrefix="model-picker-select"
+                placeholder="Select fallback model"
+                isSearchable={false}
+                isDisabled={fallbackOptions.length <= 1}
+                menuPortalTarget={menuPortalTarget}
+              />
+            </div>
           </div>
         )}
       </>
@@ -362,7 +537,7 @@ export function KeysManage() {
         <div>
           <span className="eyebrow">Key Management</span>
           <h1>API Keys</h1>
-          <p>Create distinct policy buckets by key, each with its own forced Copilot model.</p>
+          <p>Create policy buckets with allowed model groups and a controlled fallback route.</p>
         </div>
         <button onClick={openCreate} data-testid="open-create">
           Create New Key
@@ -438,27 +613,59 @@ export function KeysManage() {
                   </span>
                 </td>
                 <td>{item.key_preview}</td>
-                <td>
-                  <span className={parseAllowedModels(item).some((m) => m !== defaultModel) ? "model-custom" : ""}>
-                    {formatModelDisplay(item)}
-                  </span>
+                <td className="model-col">
+                  <div
+                    className={`model-col-inner${parseAllowedModels(item).some((m) => m !== defaultModel) ? " model-custom" : ""}`}
+                    title={formatModelDisplay(item)}
+                  >
+                    {renderTableModels(parseAllowedModels(item), item.fallback_model)}
+                  </div>
                 </td>
                 <td>{formatDateTime(item.created_at)}</td>
                 <td>{formatDateTime(item.last_used_at)}</td>
                 <td onClick={(e) => e.stopPropagation()}>
-                  {!item.is_deleted && (
-                    <button className="btn-sm secondary" onClick={() => openEdit(item)} data-testid="edit-key">
-                      Edit
+                  <div className="action-icons-row">
+                    {!item.is_deleted && (
+                      <button
+                        className="btn-action-icon"
+                        onClick={() => openEdit(item)}
+                        title="Edit"
+                        data-testid="edit-key"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                      </button>
+                    )}
+                    {!item.is_deleted && (
+                      <button
+                        className="btn-action-icon danger"
+                        onClick={() => setDeleteItem(item)}
+                        title="Delete"
+                        data-testid="delete-key"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                          <path d="M10 11v6M14 11v6"/>
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                        </svg>
+                      </button>
+                    )}
+                    <button
+                      className="btn-action-icon"
+                      onClick={() => navigate(`/keys/${item.id}`)}
+                      title="Dashboard"
+                      data-testid="view-dashboard"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                      </svg>
                     </button>
-                  )}
-                  {!item.is_deleted && (
-                    <button className="btn-sm danger" onClick={() => setDeleteItem(item)} data-testid="delete-key">
-                      Delete
-                    </button>
-                  )}
-                  <button className="btn-sm secondary" onClick={() => navigate(`/keys/${item.id}`)} data-testid="view-dashboard">
-                    Dashboard
-                  </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -505,6 +712,8 @@ export function KeysManage() {
               setCreateFallbackModel,
               manualModelInput,
               setManualModelInput,
+              createModelQuery,
+              setCreateModelQuery,
               "create",
             )}
             {createError && (
@@ -565,6 +774,8 @@ export function KeysManage() {
             setEditFallbackModel,
             editManualModelInput,
             setEditManualModelInput,
+            editModelQuery,
+            setEditModelQuery,
             "edit",
           )}
           <button type="submit" data-testid="edit-submit">

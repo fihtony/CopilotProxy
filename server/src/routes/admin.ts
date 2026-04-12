@@ -86,6 +86,22 @@ function getRequestedTimeZone(value: unknown) {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+function parseStoredAllowedModels(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeApiKeyRecord<T extends { allowed_models: string }>(record: T): Omit<T, "allowed_models"> & { allowed_models: string[] } {
+  return {
+    ...record,
+    allowed_models: parseStoredAllowedModels(record.allowed_models),
+  };
+}
+
 async function checkCopilotHealth(testUrl: string) {
   const start = Date.now();
   try {
@@ -110,7 +126,7 @@ router.get("/keys", (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
   const sortBy = typeof req.query.sortBy === "string" ? req.query.sortBy : undefined;
   const sortDir = typeof req.query.sortDir === "string" ? req.query.sortDir : undefined;
-  res.json({ items: listApiKeys(search, sortBy, sortDir) });
+  res.json({ items: listApiKeys(search, sortBy, sortDir).map(serializeApiKeyRecord) });
 });
 
 router.post("/keys", requireLocalBypassForWrite, (req, res) => {
@@ -143,12 +159,14 @@ router.post("/keys", requireLocalBypassForWrite, (req, res) => {
     createdByEmail: req.adminUser?.email ?? "",
   });
 
-  // Warm cache immediately
-  if (record) {
-    upsertApiKeyAuthSnapshot(hashApiKey(rawKey), record);
+  if (!record) {
+    return res.status(500).json({ error: { message: "Failed to create API key" } });
   }
 
-  res.status(201).json({ item: record, rawKey });
+  // Warm cache immediately
+  upsertApiKeyAuthSnapshot(hashApiKey(rawKey), record);
+
+  res.status(201).json({ item: serializeApiKeyRecord(record), rawKey });
 });
 
 router.patch("/keys/:id", requireLocalBypassForWrite, (req, res) => {
@@ -203,7 +221,7 @@ router.patch("/keys/:id", requireLocalBypassForWrite, (req, res) => {
   // Invalidate cache so next request picks up changes
   invalidateApiKeyAuthSnapshotById(id);
 
-  res.json({ item: updated });
+  res.json({ item: serializeApiKeyRecord(updated) });
 });
 
 router.delete("/keys/:id", requireLocalBypassForWrite, (req, res) => {
@@ -235,7 +253,7 @@ router.get("/keys/:id/stats", (req, res) => {
   }
 
   const window = key.is_deleted ? null : normalizeWindow(String(req.query.window ?? "24h"));
-  res.json({ item: key, ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone), allowedModels) });
+  res.json({ item: serializeApiKeyRecord(key), ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone), allowedModels) });
 });
 
 router.get("/keys/:id/history", (req, res) => {
@@ -253,7 +271,7 @@ router.get("/keys/:id/history", (req, res) => {
 router.get("/overview", (req, res) => {
   const settings = getSettings();
   const overview = readOverview(normalizeWindow(String(req.query.window ?? "24h")), getRequestedTimeZone(req.query.timezone));
-  res.json({ ...overview, defaultModel: settings.default_model });
+  res.json({ ...overview, keySummaries: overview.keySummaries.map(serializeApiKeyRecord), defaultModel: settings.default_model });
 });
 
 // ── Settings routes ─────────────────────────────────────────────────────────
