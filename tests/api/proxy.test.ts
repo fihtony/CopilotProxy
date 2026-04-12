@@ -22,7 +22,7 @@ describe("proxy routes", () => {
   let rawKey = "";
 
   beforeAll(async () => {
-    const response = await request(app).post("/api/admin/keys").send({ name: "Proxy Key", model: "gpt-5-mini" }).expect(201);
+    const response = await request(app).post("/api/admin/keys").send({ name: "Proxy Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     rawKey = response.body.rawKey;
   });
 
@@ -33,17 +33,35 @@ describe("proxy routes", () => {
       .expect(401);
   });
 
-  it("overrides requested model with configured model", async () => {
+  it("uses fallback model when requested model not in allowed_models", async () => {
     const response = await request(app)
       .post("/api/v1/chat/completions")
       .set("Authorization", `Bearer ${rawKey}`)
-      .send({ model: "gpt-4.1", messages: [{ role: "user", content: "ping" }] })
+      .send({ model: "gpt-4o", messages: [{ role: "user", content: "ping" }] })
       .expect(200);
 
+    // gpt-4o is not in allowed_models for this key; fallback is gpt-5-mini
     expect(response.body.model).toBe("gpt-5-mini");
-    // Mock copilot increments total_tokens; verify token usage is present or 0 is acceptable
     expect(typeof response.body.usage.total_tokens).toBe("number");
     expect(response.body.usage.total_tokens).toBeGreaterThanOrEqual(0);
+  }, 10000);
+
+  it("uses requested model when it is in allowed_models", async () => {
+    // Create a key with two allowed models
+    const multiKeyResp = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Multi Model Key", allowed_models: ["gpt-5-mini", "gpt-4o"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    const multiKey = multiKeyResp.body.rawKey;
+
+    const response = await request(app)
+      .post("/api/v1/chat/completions")
+      .set("Authorization", `Bearer ${multiKey}`)
+      .send({ model: "gpt-4o", messages: [{ role: "user", content: "ping" }] })
+      .expect(200);
+
+    // gpt-4o is in allowed_models, so it should be used
+    expect(response.body.model).toBe("gpt-4o");
   }, 10000);
 });
 
@@ -54,7 +72,7 @@ describe("proxy timeout and connection error handling", () => {
   let originalCopilotUrl = "";
 
   beforeAll(async () => {
-    const response = await request(app).post("/api/admin/keys").send({ name: "Timeout Test Key", model: "gpt-5-mini" }).expect(201);
+    const response = await request(app).post("/api/admin/keys").send({ name: "Timeout Test Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     rawKey = response.body.rawKey;
     keyId = response.body.item.id;
     originalCopilotUrl = getSettings().copilot_url;
@@ -130,7 +148,7 @@ describe("proxy timeout and connection error handling", () => {
     // Create a dedicated key so its stats are isolated
     const created = await request(app)
       .post("/api/admin/keys")
-      .send({ name: "Avg Time Isolation Key", model: "gpt-5-mini" })
+      .send({ name: "Avg Time Isolation Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
       .expect(201);
     const isolatedKeyId: number = created.body.item.id;
     const now = new Date().toISOString();

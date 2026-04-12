@@ -11,7 +11,7 @@ const ISO8601_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 test.describe("Timestamps — storage format", () => {
   test("TC-TIME-01: api_keys created_at is ISO 8601 with UTC offset", async ({ request }) => {
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `TS Key ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `TS Key ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     expect(create.status()).toBe(201);
     const { item } = await create.json();
@@ -24,7 +24,7 @@ test.describe("Timestamps — storage format", () => {
 
   test("TC-TIME-02: request logs timestamp is ISO 8601 with UTC offset", async ({ request }) => {
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `TS Log ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `TS Log ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item, rawKey } = await create.json();
 
@@ -43,7 +43,7 @@ test.describe("Timestamps — storage format", () => {
 
   test("TC-TIME-04: updated_at advances after key update", async ({ request }) => {
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `TS Update ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `TS Update ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item } = await create.json();
     const createdAt = new Date(item.created_at).getTime();
@@ -68,7 +68,7 @@ test.describe("Timestamps — UI display", () => {
     await expect.poll(async () => (await request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `TS UI ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `TS UI ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item, rawKey } = await create.json();
 

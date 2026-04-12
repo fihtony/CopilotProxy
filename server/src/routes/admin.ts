@@ -2,27 +2,52 @@ import { Router } from "express";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import axios from "axios";
-import { createApiKeyRecord, softDeleteApiKey, getApiKeyById, listApiKeys, updateApiKey } from "../db/database.js";
+import { createApiKeyRecord, softDeleteApiKey, getApiKeyById, listApiKeys, updateApiKey, hashApiKey } from "../db/database.js";
 import { readKeyHistory, readKeyStats, readOverview } from "../services/statsService.js";
 import { getSettings, updateSettings } from "../services/settingsService.js";
 import { validateCopilotUrl } from "../services/copilotUrlPolicy.js";
 import { requireLocalBypassForWrite } from "../middleware/cloudflareAuth.js";
-import type { TimeWindow } from "../types.js";
+import { upsertApiKeyAuthSnapshot, invalidateApiKeyAuthSnapshotById } from "../services/apiKeyCacheService.js";
+import { MAX_ALLOWED_MODELS, type TimeWindow } from "../types.js";
 
 const router = Router();
 
 const timeWindowSchema = z.enum(["24h", "7d", "30d", "90d"]);
 
-const createSchema = z.object({
-  name: z.string().min(1).max(255),
-  model: z.string().min(1).max(255).optional(),
-});
+const createSchema = z
+  .object({
+    name: z.string().min(1).max(255),
+    allowed_models: z
+      .array(z.string().max(255))
+      .optional(),
+    fallback_model: z.string().max(255).optional(),
+  })
+  .strict();
 
-const updateSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  model: z.string().min(1).max(255).optional(),
-  is_active: z.number().int().min(0).max(1).optional(),
-});
+const updateSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    allowed_models: z
+      .array(z.string().max(255))
+      .optional(),
+    fallback_model: z.string().max(255).optional(),
+    is_active: z.number().int().min(0).max(1).optional(),
+  })
+  .strict();
+
+/** Normalize an allowed_models array: trim, remove empty, deduplicate, preserve order */
+function normalizeModels(models: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const m of models) {
+    const trimmed = m.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
 
 const copilotUrlSchema = z
   .string()
@@ -95,14 +120,33 @@ router.post("/keys", requireLocalBypassForWrite, (req, res) => {
   }
 
   const defaultModel = getSettings().default_model;
+  const allowedModels = normalizeModels(parsed.data.allowed_models ?? [defaultModel]);
+  const fallbackModel = (parsed.data.fallback_model ?? defaultModel).trim();
+
+  if (allowedModels.length === 0) {
+    return res.status(400).json({ error: { message: "allowed_models must contain at least one model after normalization" } });
+  }
+  if (allowedModels.length > MAX_ALLOWED_MODELS) {
+    return res.status(400).json({ error: { message: `allowed_models must contain at most ${MAX_ALLOWED_MODELS} models` } });
+  }
+  if (!allowedModels.includes(fallbackModel)) {
+    return res.status(400).json({ error: { message: "fallback_model must be one of allowed_models" } });
+  }
+
   const rawKey = `cps_${uuidv4().replaceAll("-", "")}`;
   const record = createApiKeyRecord({
     rawKey,
     name: parsed.data.name,
-    model: parsed.data.model ?? defaultModel,
+    allowedModels,
+    fallbackModel,
     createdByName: req.adminUser?.name ?? "Unknown",
     createdByEmail: req.adminUser?.email ?? "",
   });
+
+  // Warm cache immediately
+  if (record) {
+    upsertApiKeyAuthSnapshot(hashApiKey(rawKey), record);
+  }
 
   res.status(201).json({ item: record, rawKey });
 });
@@ -113,19 +157,64 @@ router.patch("/keys/:id", requireLocalBypassForWrite, (req, res) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
 
-  const updated = updateApiKey(Number(req.params.id), parsed.data);
+  const id = Number(req.params.id);
+  const existing = getApiKeyById(id);
+  if (!existing) {
+    return res.status(404).json({ error: { message: "API key not found" } });
+  }
+
+  let existingAllowedModels: string[];
+  try {
+    existingAllowedModels = JSON.parse(existing.allowed_models);
+    if (!Array.isArray(existingAllowedModels)) existingAllowedModels = [];
+  } catch {
+    existingAllowedModels = [];
+  }
+
+  const newAllowedModels = parsed.data.allowed_models ? normalizeModels(parsed.data.allowed_models) : undefined;
+  const newFallbackModel = parsed.data.fallback_model?.trim();
+
+  const effectiveAllowedModels = newAllowedModels ?? existingAllowedModels;
+  const effectiveFallbackModel = newFallbackModel ?? existing.fallback_model;
+
+  if (newAllowedModels !== undefined) {
+    if (effectiveAllowedModels.length === 0) {
+      return res.status(400).json({ error: { message: "allowed_models must contain at least one model after normalization" } });
+    }
+    if (effectiveAllowedModels.length > MAX_ALLOWED_MODELS) {
+      return res.status(400).json({ error: { message: `allowed_models must contain at most ${MAX_ALLOWED_MODELS} models` } });
+    }
+  }
+
+  if (!effectiveAllowedModels.includes(effectiveFallbackModel)) {
+    return res.status(400).json({ error: { message: "fallback_model must be one of allowed_models" } });
+  }
+
+  const updated = updateApiKey(id, {
+    name: parsed.data.name,
+    allowed_models: newAllowedModels,
+    fallback_model: newFallbackModel,
+    is_active: parsed.data.is_active,
+  });
   if (!updated) {
     return res.status(404).json({ error: { message: "API key not found" } });
   }
+
+  // Invalidate cache so next request picks up changes
+  invalidateApiKeyAuthSnapshotById(id);
 
   res.json({ item: updated });
 });
 
 router.delete("/keys/:id", requireLocalBypassForWrite, (req, res) => {
-  const changes = softDeleteApiKey(Number(req.params.id));
+  const id = Number(req.params.id);
+  const changes = softDeleteApiKey(id);
   if (changes === 0) {
     return res.status(404).json({ error: { message: "API key not found" } });
   }
+
+  // Invalidate cache so the deleted key is immediately rejected
+  invalidateApiKeyAuthSnapshotById(id);
 
   res.status(200).json({ ok: true });
 });
@@ -137,8 +226,16 @@ router.get("/keys/:id/stats", (req, res) => {
     return res.status(404).json({ error: { message: "API key not found" } });
   }
 
+  let allowedModels: string[];
+  try {
+    allowedModels = JSON.parse(key.allowed_models);
+    if (!Array.isArray(allowedModels)) allowedModels = [];
+  } catch {
+    allowedModels = [];
+  }
+
   const window = key.is_deleted ? null : normalizeWindow(String(req.query.window ?? "24h"));
-  res.json({ item: key, ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone)) });
+  res.json({ item: key, ...readKeyStats(id, window, getRequestedTimeZone(req.query.timezone), allowedModels) });
 });
 
 router.get("/keys/:id/history", (req, res) => {

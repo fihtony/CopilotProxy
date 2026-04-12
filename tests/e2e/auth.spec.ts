@@ -32,7 +32,7 @@ test.describe("Authentication - disabled key", () => {
   test("TC-AUTH-03: request with disabled key returns 401", async ({ request }) => {
     // Create a key
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `Disabled Key ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `Disabled Key ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     expect(create.status()).toBe(201);
     const { item, rawKey } = await create.json();
@@ -61,7 +61,7 @@ test.describe("Authentication - valid key", () => {
 
   test.beforeAll(async ({ request }) => {
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `Auth Key ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `Auth Key ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const body = await create.json();
     rawKey = body.rawKey;
@@ -82,14 +82,14 @@ test.describe("Authentication - valid key", () => {
     expect(body.object).toBe("chat.completion");
   });
 
-  test("TC-AUTH-05: key model overrides request model", async ({ request }) => {
+  test("TC-AUTH-05: disallowed request model falls back to key fallback_model", async ({ request }) => {
     const response = await request.post(`${CLIENT_URL}/api/v1/chat/completions`, {
       headers: { Authorization: `Bearer ${rawKey}` },
       data: { model: "override-attempt", messages: [{ role: "user", content: "models?" }] },
     });
     expect(response.status()).toBe(200);
     const body = await response.json();
-    // The key is bound to gpt-5-mini; the request model must be ignored.
+    // override-attempt is not in allowed_models; fallback_model (gpt-5-mini) must be used.
     expect(body.model).toBe("gpt-5-mini");
   });
 

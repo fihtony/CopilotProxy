@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { getApiKeyByHash, hashApiKey } from "../db/database.js";
+import { hashApiKey } from "../db/database.js";
+import { getApiKeyAuthSnapshotByHash } from "../services/apiKeyCacheService.js";
 
 export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -8,16 +9,18 @@ export function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   }
 
   const rawKey = authHeader.slice("Bearer ".length).trim();
-  const apiKey = getApiKeyByHash(hashApiKey(rawKey));
-  if (!apiKey) {
+  const keyHash = hashApiKey(rawKey);
+  const snapshot = getApiKeyAuthSnapshotByHash(keyHash);
+  if (!snapshot) {
     return res.status(401).json({ error: { message: "Invalid or inactive API key" } });
   }
 
   req.apiKey = {
-    id: apiKey.id,
-    name: apiKey.name,
-    model: apiKey.model,
-    keyPreview: apiKey.key_preview,
+    id: snapshot.apiKeyId,
+    name: snapshot.name,
+    keyPreview: snapshot.keyPreview,
+    allowedModels: snapshot.allowedModels,
+    fallbackModel: snapshot.fallbackModel,
   };
 
   next();

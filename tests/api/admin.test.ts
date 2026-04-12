@@ -45,25 +45,37 @@ describe("admin routes", () => {
 
   // ── Key CRUD ────────────────────────────────────────────────────────────
   it("creates and lists api keys", async () => {
-    const createResponse = await request(app).post("/api/admin/keys").send({ name: "Test Key", model: "gpt-5-mini" }).expect(201);
+    const createResponse = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Test Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
 
     expect(createResponse.body.rawKey).toMatch(/^cps_/);
     // LOCAL_ADMIN_USER is overridden to test user in beforeAll.
     expect(createResponse.body.item.created_by_name).toBe("Test User");
     expect(createResponse.body.item.created_by_email).toBe("test@localhost.com");
+    expect(createResponse.body.item.allowed_models).toBe(JSON.stringify(["gpt-5-mini"]));
+    expect(createResponse.body.item.fallback_model).toBe("gpt-5-mini");
 
     const listResponse = await request(app).get("/api/admin/keys").expect(200);
     expect(Array.isArray(listResponse.body.items)).toBe(true);
     expect(listResponse.body.items.some((item: { name: string }) => item.name === "Test Key")).toBe(true);
   });
 
-  it("creates key with default model from settings", async () => {
-    const res = await request(app).post("/api/admin/keys").send({ name: "Default Model Key" }).expect(201);
-    expect(res.body.item.model).toBe("gpt-5-mini");
+  it("creates key with default fallback model from settings when omitted", async () => {
+    const res = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Default Model Key" })
+      .expect(201);
+    expect(res.body.item.fallback_model).toBe("gpt-5-mini");
+    expect(res.body.item.allowed_models).toBe(JSON.stringify(["gpt-5-mini"]));
   });
 
   it("created_by is stored and returned via stats endpoint", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "Stats Key", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Stats Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
     expect(created.body.item.created_by_name).toBe("Test User");
     expect(created.body.item.created_by_email).toBe("test@localhost.com");
 
@@ -76,7 +88,50 @@ describe("admin routes", () => {
     await request(app).post("/api/admin/keys").send({}).expect(400);
     await request(app).post("/api/admin/keys").send({ name: "" }).expect(400);
     await request(app).post("/api/admin/keys").send({ name: "a".repeat(256) }).expect(400);
-    await request(app).post("/api/admin/keys").send({ name: "Valid", model: "m".repeat(256) }).expect(400);
+    // Unknown fields rejected by strict schema
+    await request(app).post("/api/admin/keys").send({ name: "Valid", model: "gpt-5-mini" }).expect(400);
+    // fallback_model must be in allowed_models
+    await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Bad Fallback", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-4o" })
+      .expect(400);
+    // Duplicate models should be deduplicated (not an error)
+  });
+
+  it("TC-API-CREATE-010: rejects allowed_models exceeding MAX_ALLOWED_MODELS (20)", async () => {
+    const tooManyModels = Array.from({ length: 21 }, (_, i) => `test-model-${i + 1}`);
+    await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "TooManyModels", allowed_models: tooManyModels, fallback_model: "test-model-1" })
+      .expect(400);
+
+    // Exactly 20 should be accepted
+    const exactly20 = tooManyModels.slice(0, 20);
+    const res = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "Exactly20Models", allowed_models: exactly20, fallback_model: "test-model-1" })
+      .expect(201);
+    expect(JSON.parse(res.body.item.allowed_models).length).toBe(20);
+  });
+
+  it("TC-API-CREATE-011: deduplicates allowed_models on create", async () => {
+    const res = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "DedupModels", allowed_models: ["gpt-5-mini", "gpt-5-mini", "gpt-4o", "gpt-4o"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    const stored = JSON.parse(res.body.item.allowed_models);
+    expect(stored).toEqual(["gpt-5-mini", "gpt-4o"]);
+  });
+
+  it("TC-API-CREATE-012: creates key with multiple models", async () => {
+    const res = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "MultiModel", allowed_models: ["gpt-4o", "gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    const stored = JSON.parse(res.body.item.allowed_models);
+    expect(stored).toContain("gpt-4o");
+    expect(stored).toContain("gpt-5-mini");
+    expect(res.body.item.fallback_model).toBe("gpt-5-mini");
   });
 
   it("lists keys with search filter", async () => {
@@ -91,15 +146,57 @@ describe("admin routes", () => {
     expect(Array.isArray(res.body.items)).toBe(true);
   });
 
-  it("patches an existing key", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "PatchTarget", model: "gpt-5-mini" }).expect(201);
+  it("patches an existing key name", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "PatchTarget", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
     const patched = await request(app).patch(`/api/admin/keys/${created.body.item.id}`).send({ name: "Patched" }).expect(200);
     expect(patched.body.item.name).toBe("Patched");
   });
 
+  it("TC-API-EDIT-001: patches allowed_models and fallback_model", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "EditModels", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    const patched = await request(app)
+      .patch(`/api/admin/keys/${created.body.item.id}`)
+      .send({ allowed_models: ["gpt-4o", "gpt-5-mini"], fallback_model: "gpt-4o" })
+      .expect(200);
+    const stored = JSON.parse(patched.body.item.allowed_models);
+    expect(stored).toContain("gpt-4o");
+    expect(patched.body.item.fallback_model).toBe("gpt-4o");
+  });
+
+  it("TC-API-EDIT-002: rejects patch where fallback not in allowed_models", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "BadPatch", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    await request(app)
+      .patch(`/api/admin/keys/${created.body.item.id}`)
+      .send({ allowed_models: ["gpt-5-mini"], fallback_model: "gpt-4o" })
+      .expect(400);
+  });
+
+  it("TC-API-EDIT-003: rejects patch with unknown fields (strict schema)", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "StrictPatch", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
+    await request(app)
+      .patch(`/api/admin/keys/${created.body.item.id}`)
+      .send({ model: "gpt-4o" })
+      .expect(400);
+  });
+
   // ── Soft delete ─────────────────────────────────────────────────────────
   it("soft-deletes an api key (200, not 204)", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "DeleteMe", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "DeleteMe", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
     const del = await request(app).delete(`/api/admin/keys/${created.body.item.id}`).expect(200);
     expect(del.body.ok).toBe(true);
 
@@ -112,7 +209,10 @@ describe("admin routes", () => {
   });
 
   it("soft-deleted key is rejected by proxy", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "ProxyReject", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({ name: "ProxyReject", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
+      .expect(201);
     await request(app).delete(`/api/admin/keys/${created.body.item.id}`).expect(200);
 
     await request(app)

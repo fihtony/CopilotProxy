@@ -26,6 +26,7 @@ function insertSyntheticRequest(input: {
   promptTokens?: number;
   completionTokens?: number;
   errorMessage?: string | null;
+  modelUsed?: string;
 }) {
   db.prepare(
     `
@@ -48,7 +49,7 @@ function insertSyntheticRequest(input: {
     input.completionTokens ?? 0,
     input.totalTokens ?? 0,
     "ignored",
-    "gpt-5-mini",
+    input.modelUsed ?? "gpt-5-mini",
     input.errorMessage ?? null,
     "127.0.0.1",
     "localhost",
@@ -87,7 +88,7 @@ describe("stats routes", () => {
   let keyId = 0;
 
   beforeAll(async () => {
-    const createResponse = await request(app).post("/api/admin/keys").send({ name: "Stats Key", model: "gpt-5-mini" }).expect(201);
+    const createResponse = await request(app).post("/api/admin/keys").send({ name: "Stats Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     rawKey = createResponse.body.rawKey;
     keyId = createResponse.body.item.id;
 
@@ -153,7 +154,7 @@ describe("stats routes", () => {
   });
 
   it("calculates average latencies from successful requests only", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "Success Only Stats", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app).post("/api/admin/keys").send({ name: "Success Only Stats", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     const timestamp = new Date().toISOString();
 
     insertSyntheticRequest({
@@ -186,7 +187,7 @@ describe("stats routes", () => {
   });
 
   it("builds 7d buckets in the requested timezone", async () => {
-    const created = await request(app).post("/api/admin/keys").send({ name: "Timezone Stats", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app).post("/api/admin/keys").send({ name: "Timezone Stats", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     const timeZone = "America/Halifax";
     const timestamp = new Date().toISOString();
     const expectedBucket = toFourHourBucket(timestamp, timeZone);
@@ -212,7 +213,7 @@ describe("stats routes", () => {
 
   it("returns all-time stats for soft-deleted key", async () => {
     // Create + use + delete a key
-    const created = await request(app).post("/api/admin/keys").send({ name: "Deleted Stats", model: "gpt-5-mini" }).expect(201);
+    const created = await request(app).post("/api/admin/keys").send({ name: "Deleted Stats", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" }).expect(201);
     await request(app)
       .post("/api/v1/chat/completions")
       .set("Authorization", `Bearer ${created.body.rawKey}`)
@@ -242,7 +243,7 @@ describe("stats routes", () => {
   it("overview avgResponseTime and avgProxyTime exclude failed requests", async () => {
     const created = await request(app)
       .post("/api/admin/keys")
-      .send({ name: "Overview Avg Time Key", model: "gpt-5-mini" })
+      .send({ name: "Overview Avg Time Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
       .expect(201);
     const ts = new Date().toISOString();
 
@@ -265,7 +266,7 @@ describe("stats routes", () => {
   it("key list (GET /api/admin/keys) avgResponseTime excludes failed requests", async () => {
     const created = await request(app)
       .post("/api/admin/keys")
-      .send({ name: "List Avg Time Key", model: "gpt-5-mini" })
+      .send({ name: "List Avg Time Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
       .expect(201);
     const ts = new Date().toISOString();
 
@@ -292,7 +293,7 @@ describe("stats routes", () => {
   it("timeline buckets avgResponseTime and avgProxyTime exclude failed requests", async () => {
     const created = await request(app)
       .post("/api/admin/keys")
-      .send({ name: "Timeline Avg Time Key", model: "gpt-5-mini" })
+      .send({ name: "Timeline Avg Time Key", allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" })
       .expect(201);
     const ts = new Date().toISOString();
 
@@ -308,5 +309,63 @@ describe("stats routes", () => {
     expect(activeBucket).toBeDefined();
     expect(activeBucket.avgResponseTime).toBe(80);
     expect(activeBucket.avgProxyTime).toBe(10);
+  });
+
+  // ── TC-STATS: Per-model timeline ───────────────────────────────────────
+  it("TC-STATS-001: returns request_timeline_by_model in key stats", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({
+        name: "Per-Model Stats Key",
+        allowed_models: ["gpt-5-mini", "gpt-4o"],
+        fallback_model: "gpt-5-mini",
+      })
+      .expect(201);
+    const ts = new Date().toISOString();
+
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 100, proxyTimeMs: 20, modelUsed: "gpt-5-mini", totalTokens: 10 });
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 150, proxyTimeMs: 30, modelUsed: "gpt-4o", totalTokens: 15 });
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 0, responseTimeMs: 500, proxyTimeMs: 0, modelUsed: "gpt-5-mini", statusCode: 500 });
+
+    const res = await request(app)
+      .get(`/api/admin/keys/${created.body.item.id}/stats?window=24h&timezone=UTC`)
+      .expect(200);
+
+    expect(res.body.request_timeline_by_model).toBeDefined();
+    expect(Array.isArray(res.body.request_timeline_by_model["gpt-5-mini"])).toBe(true);
+    expect(Array.isArray(res.body.request_timeline_by_model["gpt-4o"])).toBe(true);
+
+    const miniTimeline = res.body.request_timeline_by_model["gpt-5-mini"] as Array<{ calls: number }>;
+    const gpt4oTimeline = res.body.request_timeline_by_model["gpt-4o"] as Array<{ calls: number }>;
+
+    const miniTotal = miniTimeline.reduce((s: number, b: { calls: number }) => s + b.calls, 0);
+    const gpt4oTotal = gpt4oTimeline.reduce((s: number, b: { calls: number }) => s + b.calls, 0);
+
+    expect(miniTotal).toBe(2); // 1 success + 1 failure
+    expect(gpt4oTotal).toBe(1);
+  });
+
+  it("TC-STATS-002: request_timeline_by_model only contains models in allowed_models", async () => {
+    const created = await request(app)
+      .post("/api/admin/keys")
+      .send({
+        name: "Model Filter Stats Key",
+        allowed_models: ["gpt-4o"],
+        fallback_model: "gpt-4o",
+      })
+      .expect(201);
+    const ts = new Date().toISOString();
+
+    // Insert a request with a model NOT in allowed_models (e.g., old data migration scenario)
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 100, proxyTimeMs: 20, modelUsed: "gpt-4o" });
+    insertSyntheticRequest({ apiKeyId: created.body.item.id, timestamp: ts, success: 1, responseTimeMs: 100, proxyTimeMs: 20, modelUsed: "unknown-model" });
+
+    const res = await request(app)
+      .get(`/api/admin/keys/${created.body.item.id}/stats?window=24h&timezone=UTC`)
+      .expect(200);
+
+    // Only gpt-4o should appear (allowed); unknown-model should not
+    expect(res.body.request_timeline_by_model["gpt-4o"]).toBeDefined();
+    expect(res.body.request_timeline_by_model["unknown-model"]).toBeUndefined();
   });
 });

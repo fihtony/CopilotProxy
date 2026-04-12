@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiClient, type ApiKeyItem, type HealthCheckResponse, type SettingsResponse } from "../api/client";
+import { apiClient, parseAllowedModels, formatModelDisplay, type ApiKeyItem, type HealthCheckResponse, type SettingsResponse } from "../api/client";
 import { Modal } from "../components/Modal";
 import { formatDateTime } from "../utils/dateFormatter";
 import { isPermissionDeniedError } from "../utils/errorHandler";
+
+const MAX_ALLOWED_MODELS = 20;
 
 interface CreateResponse {
   item: ApiKeyItem;
@@ -24,16 +26,20 @@ export function KeysManage() {
   // Create modal
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
-  const [createModel, setCreateModel] = useState("");
+  const [createAllowedModels, setCreateAllowedModels] = useState<string[]>([]);
+  const [createFallbackModel, setCreateFallbackModel] = useState("");
   const [createError, setCreateError] = useState("");
-  const [models, setModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [manualModelInput, setManualModelInput] = useState("");
   const [createdKey, setCreatedKey] = useState("");
   const [copied, setCopied] = useState(false);
 
   // Edit modal
   const [editItem, setEditItem] = useState<ApiKeyItem | null>(null);
   const [editName, setEditName] = useState("");
-  const [editModel, setEditModel] = useState("");
+  const [editAllowedModels, setEditAllowedModels] = useState<string[]>([]);
+  const [editFallbackModel, setEditFallbackModel] = useState("");
+  const [editManualModelInput, setEditManualModelInput] = useState("");
 
   // Delete modal
   const [deleteItem, setDeleteItem] = useState<ApiKeyItem | null>(null);
@@ -86,31 +92,177 @@ export function KeysManage() {
     try {
       const s = await apiClient.get<SettingsResponse>("/settings");
       const r = await apiClient.post<HealthCheckResponse>("/health/copilot", { copilot_url: s.data.copilot_url });
-      if (r.data.models) setModels(r.data.models);
+      if (r.data.models) setAvailableModels(r.data.models);
       return s.data.default_model;
     } catch {
       return "";
     }
   }
 
+  function normalizeModelList(raw: string): string[] {
+    return raw.split(/[,\n]/).map((m) => m.trim()).filter(Boolean).filter((m, i, arr) => arr.indexOf(m) === i);
+  }
+
+  function toggleAllowedModel(
+    model: string,
+    current: string[],
+    setCurrent: (v: string[]) => void,
+    setFallback: (v: string) => void,
+    currentFallback: string,
+  ) {
+    if (current.includes(model)) {
+      const next = current.filter((m) => m !== model);
+      setCurrent(next);
+      if (currentFallback === model) {
+        setFallback(next.length === 1 ? next[0] : "");
+      }
+    } else {
+      const next = [...current, model];
+      setCurrent(next);
+      if (!currentFallback) setFallback(model);
+    }
+  }
+
+  function addManualModels(
+    input: string,
+    current: string[],
+    setCurrent: (v: string[]) => void,
+    setFallback: (v: string) => void,
+    currentFallback: string,
+    setInput: (v: string) => void,
+  ) {
+    const newModels = normalizeModelList(input);
+    if (newModels.length === 0) return;
+    const combined = [...current];
+    for (const m of newModels) {
+      if (!combined.includes(m)) combined.push(m);
+    }
+    setCurrent(combined);
+    if (!currentFallback && combined.length > 0) setFallback(combined[0]);
+    setInput("");
+  }
+
   function openCreate() {
     setCreatedKey("");
     setCopied(false);
     setCreateName("");
-    setCreateModel("");
+    setCreateAllowedModels([]);
+    setCreateFallbackModel("");
     setCreateError("");
-    setModels([]);
+    setAvailableModels([]);
+    setManualModelInput("");
     setShowCreate(true);
-    fetchModels().then((defaultModel) => {
-      if (defaultModel) setCreateModel(defaultModel);
+    fetchModels().then((dm) => {
+      if (dm) {
+        setCreateAllowedModels([dm]);
+        setCreateFallbackModel(dm);
+      }
     });
   }
 
   function openEdit(item: ApiKeyItem) {
     setEditItem(item);
     setEditName(item.name);
-    setEditModel(item.model);
+    const models = parseAllowedModels(item);
+    setEditAllowedModels(models);
+    setEditFallbackModel(item.fallback_model);
+    setEditManualModelInput("");
     fetchModels();
+  }
+
+  function renderModelSelector(
+    label: string,
+    allowedModels: string[],
+    fallbackModel: string,
+    setAllowedModels: (v: string[]) => void,
+    setFallbackModel: (v: string) => void,
+    manualInput: string,
+    setManualInput: (v: string) => void,
+    testIdPrefix: string,
+  ) {
+    return (
+      <>
+        <div>
+          <label>{label}</label>
+          {availableModels.length > 0 ? (
+            <div className="model-checkbox-group" data-testid={`${testIdPrefix}-model-checkboxes`}>
+              {availableModels.map((m) => (
+                <label key={m} className="model-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allowedModels.includes(m)}
+                    onChange={() => toggleAllowedModel(m, allowedModels, setAllowedModels, setFallbackModel, fallbackModel)}
+                    data-testid={`${testIdPrefix}-model-check-${m}`}
+                  />
+                  {m}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <textarea
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder="Enter model names, comma or newline separated"
+                rows={3}
+                data-testid={`${testIdPrefix}-model-manual`}
+                className="model-textarea"
+              />
+              <button
+                type="button"
+                className="btn-sm secondary"
+                onClick={() => addManualModels(manualInput, allowedModels, setAllowedModels, setFallbackModel, fallbackModel, setManualInput)}
+                data-testid={`${testIdPrefix}-model-add`}
+              >
+                Add
+              </button>
+              {allowedModels.length > 0 && (
+                <div className="model-chips" data-testid={`${testIdPrefix}-model-chips`}>
+                  {allowedModels.map((m) => (
+                    <span key={m} className="model-chip">
+                      {m}
+                      <button
+                        type="button"
+                        className="model-chip-remove"
+                        onClick={() => toggleAllowedModel(m, allowedModels, setAllowedModels, setFallbackModel, fallbackModel)}
+                        aria-label={`Remove ${m}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {allowedModels.length > 1 && (
+          <div>
+            <label htmlFor={`${testIdPrefix}-fallback`}>Fallback Model</label>
+            <select
+              id={`${testIdPrefix}-fallback`}
+              value={fallbackModel}
+              onChange={(e) => setFallbackModel(e.target.value)}
+              data-testid={`${testIdPrefix}-fallback`}
+            >
+              <option value="">-- select fallback --</option>
+              {allowedModels.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {allowedModels.length > 0 && (
+          <div className="model-preview" data-testid={`${testIdPrefix}-model-preview`}>
+            <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>Preview: </span>
+            {fallbackModel && <span className="model-fallback-badge">{fallbackModel}(fallback)</span>}
+            {allowedModels.filter((m) => m !== fallbackModel).map((m) => (
+              <span key={m} className="model-tag">{m}</span>
+            ))}
+          </div>
+        )}
+      </>
+    );
   }
 
   async function handleCreate() {
@@ -120,8 +272,24 @@ export function KeysManage() {
       setCreateError(`A key named "${createName}" already exists. Please choose a different name.`);
       return;
     }
+    if (createAllowedModels.length === 0) {
+      setCreateError("Select at least one model.");
+      return;
+    }
+    if (createAllowedModels.length > MAX_ALLOWED_MODELS) {
+      setCreateError(`Maximum ${MAX_ALLOWED_MODELS} models allowed.`);
+      return;
+    }
+    if (!createFallbackModel || !createAllowedModels.includes(createFallbackModel)) {
+      setCreateError("Please select a fallback model from the allowed models.");
+      return;
+    }
     try {
-      const r = await apiClient.post<CreateResponse>("/keys", { name: createName.trim(), model: createModel || undefined });
+      const r = await apiClient.post<CreateResponse>("/keys", {
+        name: createName.trim(),
+        allowed_models: createAllowedModels,
+        fallback_model: createFallbackModel,
+      });
       setCreatedKey(r.data.rawKey);
     } catch (error) {
       if (isPermissionDeniedError(error)) {
@@ -139,8 +307,13 @@ export function KeysManage() {
 
   async function handleEdit() {
     if (!editItem) return;
+    if (editAllowedModels.length === 0 || !editFallbackModel || !editAllowedModels.includes(editFallbackModel)) return;
     try {
-      await apiClient.patch(`/keys/${editItem.id}`, { name: editName, model: editModel });
+      await apiClient.patch(`/keys/${editItem.id}`, {
+        name: editName,
+        allowed_models: editAllowedModels,
+        fallback_model: editFallbackModel,
+      });
       setEditItem(null);
       await load();
     } catch (error) {
@@ -177,9 +350,11 @@ export function KeysManage() {
     return sortDir === "asc" ? <span className="sort-icon sort-active">↑</span> : <span className="sort-icon sort-active">↓</span>;
   }
 
-  const visibleItems = (showDeleted ? items : items.filter((i) => !i.is_deleted)).filter(
-    (i) => !showCustomModel || (defaultModel && i.model !== defaultModel),
-  );
+  const visibleItems = (showDeleted ? items : items.filter((i) => !i.is_deleted)).filter((i) => {
+    if (!showCustomModel) return true;
+    const models = parseAllowedModels(i);
+    return models.some((m) => m !== defaultModel);
+  });
 
   return (
     <div className="page-stack">
@@ -235,7 +410,7 @@ export function KeysManage() {
                 Name{sortIcon("name")}
               </th>
               <th>API Key</th>
-              <th>Model</th>
+              <th>Models</th>
               <th className="sortable" onClick={() => handleSort("created_at")}>
                 Created{sortIcon("created_at")}
               </th>
@@ -264,7 +439,9 @@ export function KeysManage() {
                 </td>
                 <td>{item.key_preview}</td>
                 <td>
-                  <span className={defaultModel && item.model !== defaultModel ? "model-custom" : ""}>{item.model}</span>
+                  <span className={parseAllowedModels(item).some((m) => m !== defaultModel) ? "model-custom" : ""}>
+                    {formatModelDisplay(item)}
+                  </span>
                 </td>
                 <td>{formatDateTime(item.created_at)}</td>
                 <td>{formatDateTime(item.last_used_at)}</td>
@@ -287,7 +464,7 @@ export function KeysManage() {
             ))}
           </tbody>
         </table>
-        {visibleItems.length === 0 && <p className="empty-state">No API keys yet.</p>}
+        {visibleItems.length === 0 && !isLoading && <p className="empty-state">No API keys yet.</p>}
       </div>
 
       {/* Create Key Modal */}
@@ -320,32 +497,16 @@ export function KeysManage() {
                 data-testid="create-name"
               />
             </div>
-            <div>
-              <label htmlFor="create-model">Model</label>
-              {models.length > 0 ? (
-                <select
-                  id="create-model"
-                  value={createModel}
-                  onChange={(e) => setCreateModel(e.target.value)}
-                  data-testid="create-model"
-                  className="model-select"
-                >
-                  {models.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  id="create-model"
-                  value={createModel}
-                  onChange={(e) => setCreateModel(e.target.value)}
-                  placeholder="gpt-5-mini"
-                  data-testid="create-model"
-                />
-              )}
-            </div>
+            {renderModelSelector(
+              "Allowed Models",
+              createAllowedModels,
+              createFallbackModel,
+              setCreateAllowedModels,
+              setCreateFallbackModel,
+              manualModelInput,
+              setManualModelInput,
+              "create",
+            )}
             {createError && (
               <p className="callout callout-error" style={{ margin: 0 }}>
                 {createError}
@@ -396,26 +557,16 @@ export function KeysManage() {
             <label htmlFor="edit-name">Name</label>
             <input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} required data-testid="edit-name" />
           </div>
-          <div>
-            <label htmlFor="edit-model">Model</label>
-            {models.length > 0 ? (
-              <select
-                id="edit-model"
-                value={editModel}
-                onChange={(e) => setEditModel(e.target.value)}
-                data-testid="edit-model"
-                className="model-select"
-              >
-                {models.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input id="edit-model" value={editModel} onChange={(e) => setEditModel(e.target.value)} data-testid="edit-model" />
-            )}
-          </div>
+          {renderModelSelector(
+            "Allowed Models",
+            editAllowedModels,
+            editFallbackModel,
+            setEditAllowedModels,
+            setEditFallbackModel,
+            editManualModelInput,
+            setEditManualModelInput,
+            "edit",
+          )}
           <button type="submit" data-testid="edit-submit">
             Save
           </button>

@@ -48,8 +48,11 @@ function parseUsageFromTail(tail: string): { prompt_tokens: number; completion_t
 async function handleStreamingProxy(req: Request, res: Response, path: string) {
   const startedAt = Date.now();
   const logPath = req.originalUrl.split("?")[0]; // client-facing path for DB logging
-  const requestedModel = typeof req.body?.model === "string" ? req.body.model : null;
-  const modelUsed = req.apiKey?.model ?? "gpt-5-mini";
+  const rawModel = req.body?.model;
+  const requestedModel = typeof rawModel === "string" && rawModel.trim() !== "" ? rawModel.trim() : null;
+  const allowedModels = req.apiKey?.allowedModels ?? [];
+  const fallbackModel = req.apiKey?.fallbackModel ?? "gpt-5-mini";
+  const modelUsed = requestedModel && allowedModels.includes(requestedModel) ? requestedModel : fallbackModel;
   const copilotUrl = getCachedSettings().copilot_url;
   const { clientIp, clientHost } = extractClientInfo(req);
 
@@ -219,8 +222,11 @@ async function handleProxy(req: Request, res: Response, path: string) {
 
   const startedAt = Date.now();
   const logPath = req.originalUrl.split("?")[0]; // client-facing path for DB logging
-  const requestedModel = typeof req.body?.model === "string" ? req.body.model : null;
-  const modelUsed = req.apiKey?.model ?? "gpt-5-mini";
+  const rawModel = req.body?.model;
+  const requestedModel = typeof rawModel === "string" && rawModel.trim() !== "" ? rawModel.trim() : null;
+  const allowedModels = req.apiKey?.allowedModels ?? [];
+  const fallbackModel = req.apiKey?.fallbackModel ?? "gpt-5-mini";
+  const modelUsed = requestedModel && allowedModels.includes(requestedModel) ? requestedModel : fallbackModel;
   const copilotUrl = getCachedSettings().copilot_url;
   const { clientIp, clientHost } = extractClientInfo(req);
 

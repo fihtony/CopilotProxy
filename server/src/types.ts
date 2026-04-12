@@ -1,11 +1,14 @@
 export type TimeWindow = "24h" | "7d" | "30d" | "90d";
 
+export const MAX_ALLOWED_MODELS = 20;
+
 export interface ApiKeyRecord {
   id: number;
   key_hash: string;
   key_preview: string;
   name: string;
-  model: string;
+  allowed_models: string;
+  fallback_model: string;
   is_active: number;
   is_deleted: number;
   created_by_name: string;
@@ -17,8 +20,9 @@ export interface ApiKeyRecord {
 export interface AuthenticatedApiKey {
   id: number;
   name: string;
-  model: string;
   keyPreview: string;
+  allowedModels: string[];
+  fallbackModel: string;
 }
 
 export interface RequestLogRecord {

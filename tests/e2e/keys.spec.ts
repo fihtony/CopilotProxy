@@ -51,14 +51,15 @@ test("TC-KEY-01: DB fields are set correctly after key creation", async ({ page,
 
   const name = `DB Check ${Date.now()}`;
   const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-    data: { name, model: "gpt-4o-mini" },
+    data: { name, allowed_models: ["gpt-4o"], fallback_model: "gpt-4o" },
   });
   expect(create.status()).toBe(201);
   const { item, rawKey } = await create.json();
 
   // Verify DB fields via admin API
   expect(item.name).toBe(name);
-  expect(item.model).toBe("gpt-4o-mini");
+  expect(JSON.parse(item.allowed_models)).toContain("gpt-4o");
+  expect(item.fallback_model).toBe("gpt-4o");
   expect(item.is_active).toBe(1);
   expect(item.key_preview).toMatch(/^cps_.{4,8}\.{3}.{4}$/);
   expect(rawKey).toMatch(/^cps_[a-f0-9]{32}$/);
@@ -78,7 +79,8 @@ test("TC-KEY-02: default model fallback from settings", async ({ request }) => {
   // Read default from settings
   const settings = await request.get(`${ADMIN_URL}/api/admin/settings`);
   const { default_model } = await settings.json();
-  expect(item.model).toBe(default_model);
+  expect(item.fallback_model).toBe(default_model);
+  expect(JSON.parse(item.allowed_models)).toContain(default_model);
 
   await request.delete(`${ADMIN_URL}/api/admin/keys/${item.id}`);
 });
@@ -103,7 +105,7 @@ test("TC-KEY-05: generated raw key shown only once — not visible after closing
 
 test("TC-KEY-06: soft-deleted key is rejected by proxy but data remains", async ({ request }) => {
   const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-    data: { name: `SoftDel ${Date.now()}`, model: "gpt-5-mini" },
+    data: { name: `SoftDel ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
   });
   const { item, rawKey } = await create.json();
 

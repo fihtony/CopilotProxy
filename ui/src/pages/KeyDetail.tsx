@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   apiClient,
   buildStatsQuery,
+  formatModelDisplay,
   type KeyStatsResponse,
   type TimeWindowValue,
   type AutoRefreshInterval,
@@ -183,7 +184,7 @@ export function KeyDetail() {
                 <code style={{ marginLeft: "0.25rem" }}>{data?.item.key_preview ?? ""}</code>
               </span>
               <span>
-                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>model:</span> {data?.item.model ?? ""}
+                <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>models:</span> {data?.item ? formatModelDisplay(data.item) : ""}
               </span>
               <span>
                 <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>created:</span> {formatDateTime(data?.item.created_at)}

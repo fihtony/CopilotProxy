@@ -9,7 +9,7 @@ test("TC-HIST-01/02: shows request history rows and forced model usage", async (
   await expect.poll(async () => (await page.request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
   const createResponse = await page.request.post(`${ADMIN_URL}/api/admin/keys`, {
-    data: { name: `History ${Date.now()}`, model: "gpt-5-mini" },
+    data: { name: `History ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
   });
   const created = await createResponse.json();
 
@@ -30,7 +30,7 @@ test("TC-HIST-01/02: shows request history rows and forced model usage", async (
 
 test("TC-HIST-03: pagination returns correct rows", async ({ request }) => {
   const createResponse = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-    data: { name: `Pagination ${Date.now()}`, model: "gpt-5-mini" },
+    data: { name: `Pagination ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
   });
   const { item, rawKey } = await createResponse.json();
 

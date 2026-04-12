@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   apiClient,
   buildStatsQuery,
+  parseAllowedModels,
+  formatModelDisplay,
   type OverviewResponse,
   type TimeWindowValue,
   type AutoRefreshInterval,
@@ -170,7 +172,7 @@ export function Dashboard() {
     return compareValues(va, vb) * dir;
   });
   const sorted = (showDeleted ? sortedAll : sortedAll.filter((k) => !k.isDeleted)).filter(
-    (k) => !showCustomModel || (defaultModel && k.model !== defaultModel),
+    (k) => !showCustomModel || parseAllowedModels({ allowed_models: k.allowed_models, fallback_model: k.fallback_model } as any).some((m) => m !== defaultModel),
   );
 
   function sortIcon(col: string) {
@@ -340,7 +342,7 @@ export function Dashboard() {
                 </td>
                 <td>{item.keyPreview}</td>
                 <td>
-                  <span className={defaultModel && item.model !== defaultModel ? "model-custom" : ""}>{item.model}</span>
+                  <span className={parseAllowedModels({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any).some((m) => m !== defaultModel) ? "model-custom" : ""}>{formatModelDisplay({ allowed_models: item.allowed_models, fallback_model: item.fallback_model } as any)}</span>
                 </td>
                 <td>{item.totalCalls}</td>
                 <td>{item.successRate}%</td>

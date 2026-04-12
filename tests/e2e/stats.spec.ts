@@ -11,7 +11,7 @@ test.describe("Stats tracking", () => {
 
   test.beforeAll(async ({ request }) => {
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `Stats Key ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `Stats Key ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const body = await create.json();
     rawKey = body.rawKey;
@@ -77,7 +77,7 @@ test.describe("Stats tracking", () => {
 
   test("TC-STATS-05: overview aggregates across keys", async ({ request }) => {
     const create2 = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `Stats Key B ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `Stats Key B ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item: item2, rawKey: rawKey2 } = await create2.json();
 
@@ -112,7 +112,7 @@ test.describe("Stats UI — metric cards and timeline", () => {
 
     // Seed some traffic
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `UI Stats ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `UI Stats ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item, rawKey } = await create.json();
 
@@ -137,7 +137,7 @@ test.describe("Stats UI — metric cards and timeline", () => {
     await expect.poll(async () => (await request.get(`${ADMIN_URL}/health`)).status()).toBe(200);
 
     const create = await request.post(`${ADMIN_URL}/api/admin/keys`, {
-      data: { name: `Timeline ${Date.now()}`, model: "gpt-5-mini" },
+      data: { name: `Timeline ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
     });
     const { item, rawKey } = await create.json();
 

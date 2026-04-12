@@ -47,6 +47,51 @@ if (!columnExists("api_keys", "created_by_email")) {
   db.exec("ALTER TABLE api_keys ADD COLUMN created_by_email TEXT NOT NULL DEFAULT ''");
 }
 
+// ── Migration: model → allowed_models + fallback_model ──────────────────────
+if (columnExists("api_keys", "model")) {
+  if (!columnExists("api_keys", "allowed_models")) {
+    db.exec("ALTER TABLE api_keys ADD COLUMN allowed_models TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!columnExists("api_keys", "fallback_model")) {
+    db.exec("ALTER TABLE api_keys ADD COLUMN fallback_model TEXT NOT NULL DEFAULT 'gpt-5-mini'");
+  }
+  // Migrate existing data: model → allowed_models=[model], fallback_model=model
+  db.exec(`
+    UPDATE api_keys
+    SET allowed_models = '["' || model || '"]',
+        fallback_model = model
+    WHERE allowed_models = '[]' AND model IS NOT NULL AND model != ''
+  `);
+  // Recreate the table without the old model column (SQLite drop-column via table rebuild)
+  db.exec("DROP TABLE IF EXISTS api_keys_new");
+  db.exec(`
+    CREATE TABLE api_keys_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key_hash TEXT NOT NULL UNIQUE,
+      key_preview TEXT NOT NULL,
+      name TEXT NOT NULL,
+      allowed_models TEXT NOT NULL DEFAULT '[]',
+      fallback_model TEXT NOT NULL DEFAULT 'gpt-5-mini',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      created_by_name TEXT NOT NULL DEFAULT 'Unknown',
+      created_by_email TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  db.exec(`
+    INSERT INTO api_keys_new
+      SELECT id, key_hash, key_preview, name, allowed_models, fallback_model,
+             is_active, is_deleted, created_by_name, created_by_email, created_at, updated_at
+      FROM api_keys
+  `);
+  db.pragma("foreign_keys = OFF");
+  db.exec("DROP TABLE api_keys");
+  db.exec("ALTER TABLE api_keys_new RENAME TO api_keys");
+  db.pragma("foreign_keys = ON");
+}
+
 // Seed default settings rows if not present
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
 const now = new Date().toISOString();
@@ -90,18 +135,19 @@ export function previewApiKey(apiKey: string) {
   return `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}`;
 }
 
-export function createApiKeyRecord(input: { rawKey: string; name: string; model: string; createdByName: string; createdByEmail: string }) {
+export function createApiKeyRecord(input: { rawKey: string; name: string; allowedModels: string[]; fallbackModel: string; createdByName: string; createdByEmail: string }) {
   const ts = new Date().toISOString();
   const statement = db.prepare(`
-    INSERT INTO api_keys (key_hash, key_preview, name, model, created_by_name, created_by_email, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO api_keys (key_hash, key_preview, name, allowed_models, fallback_model, created_by_name, created_by_email, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const result = statement.run(
     hashApiKey(input.rawKey),
     previewApiKey(input.rawKey),
     input.name,
-    input.model,
+    JSON.stringify(input.allowedModels),
+    input.fallbackModel,
     input.createdByName,
     input.createdByEmail,
     ts,
@@ -169,19 +215,22 @@ export function listApiKeys(search?: string, sortBy?: string, sortDir?: string) 
   })[];
 }
 
-export function updateApiKey(id: number, payload: { name?: string; model?: string; is_active?: number }) {
+export function updateApiKey(id: number, payload: { name?: string; allowed_models?: string[]; fallback_model?: string; is_active?: number }) {
   const current = getApiKeyById(id);
   if (!current) {
     return undefined;
   }
 
+  const allowedModels = payload.allowed_models ? JSON.stringify(payload.allowed_models) : current.allowed_models;
+  const fallbackModel = payload.fallback_model ?? current.fallback_model;
+
   db.prepare(
     `
     UPDATE api_keys
-    SET name = ?, model = ?, is_active = ?, updated_at = ?
+    SET name = ?, allowed_models = ?, fallback_model = ?, is_active = ?, updated_at = ?
     WHERE id = ?
   `,
-  ).run(payload.name ?? current.name, payload.model ?? current.model, payload.is_active ?? current.is_active, new Date().toISOString(), id);
+  ).run(payload.name ?? current.name, allowedModels, fallbackModel, payload.is_active ?? current.is_active, new Date().toISOString(), id);
 
   return getApiKeyById(id);
 }
@@ -238,6 +287,7 @@ interface StatsRequestRow {
   error_message: string | null;
   ip_address: string | null;
   host: string | null;
+  model_used: string | null;
 }
 
 interface LocalDate {
@@ -607,7 +657,8 @@ function getOverviewRows(windowStart: string) {
       requests.total_tokens,
       requests.error_message,
       requests.ip_address,
-      requests.host
+      requests.host,
+      requests.model_used
     FROM requests
     WHERE requests.timestamp >= ?
     ORDER BY requests.timestamp ASC
@@ -634,7 +685,8 @@ function getKeyRequestRows(id: number, windowStart: string) {
       total_tokens,
       error_message,
       ip_address,
-      host
+      host,
+      model_used
     FROM requests
     WHERE api_key_id = ? AND timestamp >= ?
     ORDER BY timestamp ASC
@@ -677,10 +729,11 @@ export function getOverview(window: TimeWindow, timeZone?: string) {
   };
   const pValues = computePercentilesFromRows(filteredRows);
 
-  const allKeys = db.prepare("SELECT id, name, model, key_preview AS keyPreview, is_deleted AS isDeleted, created_at AS createdAt FROM api_keys").all() as Array<{
+  const allKeys = db.prepare("SELECT id, name, allowed_models, fallback_model, key_preview AS keyPreview, is_deleted AS isDeleted, created_at AS createdAt FROM api_keys").all() as Array<{
     id: number;
     name: string;
-    model: string;
+    allowed_models: string;
+    fallback_model: string;
     keyPreview: string;
     isDeleted: number;
     createdAt: string;
@@ -710,7 +763,7 @@ export function getOverview(window: TimeWindow, timeZone?: string) {
   return { summary: { ...summary, ...pValues }, keySummaries, timeline };
 }
 
-export function getKeyStats(id: number, window: TimeWindow | null, timeZone?: string) {
+export function getKeyStats(id: number, window: TimeWindow | null, timeZone?: string, allowedModels?: string[]) {
   const resolvedTimeZone = normalizeTimeZone(timeZone);
   const useAllTime = window === null;
   const coarseStart = useAllTime ? "1970-01-01T00:00:00.000Z" : buildWindowSeries(window, resolvedTimeZone).coarseStart;
@@ -737,9 +790,27 @@ export function getKeyStats(id: number, window: TimeWindow | null, timeZone?: st
       error_message: row.error_message,
     }));
 
+  // Build per-model timelines if allowedModels is provided
+  const requestTimelineByModel: Record<string, Array<{ bucket: string; calls: number }>> = {};
+  const responseTimelineByModel: Record<string, Array<{ bucket: string; avgResponseTime: number }>> = {};
+  const successTimelineByModel: Record<string, Array<{ bucket: string; successRate: number }>> = {};
+
+  if (allowedModels && allowedModels.length > 0) {
+    for (const model of allowedModels) {
+      const modelRows = filteredRows.filter((r) => r.model_used === model);
+      const { timeline: modelTimeline } = buildTimeline(modelRows, series);
+      requestTimelineByModel[model] = modelTimeline.map((t) => ({ bucket: t.bucket, calls: t.calls }));
+      responseTimelineByModel[model] = modelTimeline.map((t) => ({ bucket: t.bucket, avgResponseTime: t.avgResponseTime }));
+      successTimelineByModel[model] = modelTimeline.map((t) => ({ bucket: t.bucket, successRate: t.successRate }));
+    }
+  }
+
   return {
     stats: { ...stats, ...pValues },
     timeline,
+    request_timeline_by_model: requestTimelineByModel,
+    response_timeline_by_model: responseTimelineByModel,
+    success_timeline_by_model: successTimelineByModel,
     recentErrors,
     callsByIpAndHost: buildCallsByIpAndHost(filteredRows),
   };

@@ -9,8 +9,8 @@ export function readOverview(window: TimeWindow, timeZone?: string) {
   return getOverview(window, timeZone);
 }
 
-export function readKeyStats(id: number, window: TimeWindow | null, timeZone?: string) {
-  return getKeyStats(id, window, timeZone);
+export function readKeyStats(id: number, window: TimeWindow | null, timeZone?: string, allowedModels?: string[]) {
+  return getKeyStats(id, window, timeZone, allowedModels);
 }
 
 export function readKeyHistory(id: number, page: number, limit: number) {

@@ -23,7 +23,8 @@ export interface ApiKeyItem {
   key_hash: string;
   key_preview: string;
   name: string;
-  model: string;
+  allowed_models: string;
+  fallback_model: string;
   is_active: number;
   is_deleted: number;
   created_by_name: string;
@@ -34,6 +35,25 @@ export interface ApiKeyItem {
   totalCalls?: number;
   successRate?: number;
   avgResponseTime?: number;
+}
+
+/** Parsed allowed_models from JSON string, with fallback first in display order */
+export function parseAllowedModels(item: ApiKeyItem): string[] {
+  try {
+    const models = JSON.parse(item.allowed_models) as string[];
+    return Array.isArray(models) ? models : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Format models for display: fallback first with (fallback) marker */
+export function formatModelDisplay(item: ApiKeyItem): string {
+  const models = parseAllowedModels(item);
+  const fallback = item.fallback_model;
+  const others = models.filter((m) => m !== fallback);
+  const parts = [`${fallback}(fallback)`, ...others];
+  return parts.join(', ');
 }
 
 export interface TimelinePoint {
@@ -66,7 +86,8 @@ export interface OverviewResponse {
   keySummaries: Array<{
     id: number;
     name: string;
-    model: string;
+    allowed_models: string;
+    fallback_model: string;
     keyPreview: string;
     isDeleted: number;
     createdAt: string;
@@ -100,6 +121,9 @@ export interface KeyStatsResponse {
     p99Tokens: number;
   };
   timeline: TimelinePoint[];
+  request_timeline_by_model: Record<string, Array<{ bucket: string; calls: number }>>;
+  response_timeline_by_model: Record<string, Array<{ bucket: string; avgResponseTime: number }>>;
+  success_timeline_by_model: Record<string, Array<{ bucket: string; successRate: number }>>;
   recentErrors: Array<{
     id: number;
     timestamp: string;

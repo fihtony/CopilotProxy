@@ -5,7 +5,7 @@ const CLIENT_URL = "http://127.0.0.1:8022"; // OpenAI-compatible proxy API
 
 async function seedKeyAndTraffic(page: Page) {
   const createResponse = await page.request.post(`${ADMIN_URL}/api/admin/keys`, {
-    data: { name: `Dashboard ${Date.now()}`, model: "gpt-5-mini" },
+    data: { name: `Dashboard ${Date.now()}`, allowed_models: ["gpt-5-mini"], fallback_model: "gpt-5-mini" },
   });
   const created = await createResponse.json();
   const rawKey = created.rawKey as string;
@@ -131,7 +131,8 @@ test("highlights the saved API key time window on entry", async ({ page }) => {
           key_hash: "hash",
           key_preview: "cps_test...9999",
           name: "Test Key",
-          model: "gpt-5-mini",
+          allowed_models: JSON.stringify(["gpt-5-mini"]),
+          fallback_model: "gpt-5-mini",
           is_active: 1,
           is_deleted: 0,
           created_by_name: "Test User",

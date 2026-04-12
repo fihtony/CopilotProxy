@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS api_keys (
   key_hash TEXT NOT NULL UNIQUE,
   key_preview TEXT NOT NULL,
   name TEXT NOT NULL,
-  model TEXT NOT NULL,
+  allowed_models TEXT NOT NULL DEFAULT '[]',
+  fallback_model TEXT NOT NULL DEFAULT 'gpt-5-mini',
   is_active INTEGER NOT NULL DEFAULT 1,
   is_deleted INTEGER NOT NULL DEFAULT 0,
   created_by_name TEXT NOT NULL DEFAULT 'Unknown',
@@ -44,3 +45,4 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE INDEX IF NOT EXISTS idx_requests_api_key_id ON requests(api_key_id);
 CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);
+CREATE INDEX IF NOT EXISTS idx_requests_api_key_model_used_timestamp ON requests(api_key_id, model_used, timestamp);
