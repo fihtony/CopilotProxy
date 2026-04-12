@@ -46,6 +46,9 @@ if (!columnExists("api_keys", "created_by_name")) {
 if (!columnExists("api_keys", "created_by_email")) {
   db.exec("ALTER TABLE api_keys ADD COLUMN created_by_email TEXT NOT NULL DEFAULT ''");
 }
+if (!columnExists("api_keys", "deleted_at")) {
+  db.exec("ALTER TABLE api_keys ADD COLUMN deleted_at TEXT");
+}
 
 // Seed default settings rows if not present
 const seedSettings = db.prepare("INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)");
@@ -193,7 +196,8 @@ export function updateApiKey(id: number, payload: { name?: string; allowed_model
 export function softDeleteApiKey(id: number) {
   const current = getApiKeyById(id);
   if (!current) return 0;
-  db.prepare("UPDATE api_keys SET is_deleted = 1, is_active = 0, updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  const deletedAt = new Date().toISOString();
+  db.prepare("UPDATE api_keys SET is_deleted = 1, is_active = 0, deleted_at = ?, updated_at = ? WHERE id = ?").run(deletedAt, deletedAt, id);
   return 1;
 }
 

@@ -207,6 +207,24 @@ export function KeysManage() {
     return () => clearTimeout(t);
   }, [load]);
 
+  // Open edit modal if navigated here from KeyDetail with a pending edit
+  useEffect(() => {
+    const pendingEditId = sessionStorage.getItem("pendingEditKeyId");
+    if (!pendingEditId || items.length === 0) return;
+    sessionStorage.removeItem("pendingEditKeyId");
+    const item = items.find((i) => String(i.id) === pendingEditId);
+    if (item && !item.is_deleted) {
+      setEditItem(item);
+      setEditName(item.name);
+      const models = parseAllowedModels(item);
+      setEditAllowedModels(models);
+      setEditFallbackModel(item.fallback_model);
+      setEditManualModelInput("");
+      setEditModelQuery("");
+      void fetchModels();
+    }
+  }, [items]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function fetchModels(): Promise<string> {
     let defaultModel = "";
     try {

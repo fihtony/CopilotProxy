@@ -558,6 +558,65 @@ tbody tr:hover {
   background: rgba(255, 90, 95, 0.15);
 }
 
+/* ── Action text+icon button (used in KeyDetail edit/delete) ─────────── */
+.key-detail-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 1rem;
+  align-self: stretch;
+}
+
+.key-detail-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.btn-action-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.82rem;
+  line-height: 1;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  border: 1px solid var(--border);
+  transition: all 160ms ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.key-detail-actions-row .btn-action-text {
+  gap: 0.45rem;
+  padding: 0.58rem 0.95rem;
+  font-size: 0.9rem;
+  border-radius: 12px;
+}
+
+.key-detail-actions-row .btn-action-text svg {
+  width: 15px;
+  height: 15px;
+}
+
+.btn-action-text:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--accent);
+}
+
+.btn-action-text.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(255, 90, 95, 0.2);
+}
+
+.btn-action-text.danger:hover {
+  background: rgba(255, 90, 95, 0.15);
+}
+
 .action-icons-row {
   display: flex;
   gap: 0.3rem;
@@ -594,6 +653,12 @@ tbody tr:hover {
   transition: all 160ms ease;
   flex-shrink: 0;
   cursor: pointer;
+}
+
+.key-detail-actions-row .btn-icon-refresh {
+  padding: 0.58rem 0.8rem;
+  font-size: 1.22rem;
+  border-radius: 12px;
 }
 
 .btn-icon-refresh:hover {
@@ -915,7 +980,7 @@ button.secondary:hover,
 
 /* ── Model column (table) ────────────────────────────────────────────── */
 .model-col {
-  /* width controlled by table layout */
+  min-width: 0;
 }
 
 .model-col-inner {

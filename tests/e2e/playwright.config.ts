@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   timeout: 60_000,
+  workers: 1,
   globalSetup: "./globalSetup.cjs",
   globalTeardown: "./globalTeardown.cjs",
   use: {

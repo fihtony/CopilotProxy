@@ -141,7 +141,22 @@ export function Dashboard() {
   const dashboardModelOptions = useMemo((): Array<{ value: string; label: string }> => {
     const byModel = data?.request_timeline_by_model;
     if (!byModel || Object.keys(byModel).length === 0) return [{ value: "total", label: "Total Requests" }];
-    const models = Object.keys(byModel).sort();
+    const configuredModels = new Set<string>();
+    for (const keySummary of data?.keySummaries ?? []) {
+      const modelsForKey = parseAllowedModels({ allowed_models: keySummary.allowed_models });
+      for (const model of modelsForKey) {
+        configuredModels.add(model);
+      }
+    }
+
+    const models = Object.keys(byModel)
+      .filter((model) => configuredModels.has(model) && !/^unknown(?:-model)?$/i.test(model.trim()))
+      .sort();
+
+    if (models.length === 0) {
+      return [{ value: "total", label: "Total Requests" }];
+    }
+
     return [{ value: "total", label: "Total Requests" }, ...models.map((m) => ({ value: m, label: m }))];
   }, [data]);
 
